@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('recurring:process')->everyMinute();
+Schedule::command('insights:generate-monthly')->monthlyOn(1, '02:00');

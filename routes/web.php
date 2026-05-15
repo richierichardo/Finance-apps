@@ -1,10 +1,11 @@
 <?php
 
+use App\Http\Controllers\AIInsightController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\RecurringTransactionController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\RecurringTransactionController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\WalletController;
 use Illuminate\Foundation\Application;
@@ -71,6 +72,11 @@ Route::middleware('auth')->group(function () {
         Route::get('/budgets', [DashboardController::class, 'budgets'])->name('dashboard.budgets');
         Route::get('/upcoming-recurring', [DashboardController::class, 'upcomingRecurring'])->name('dashboard.upcoming-recurring');
     });
+
+    Route::get('/insights', [AIInsightController::class, 'index'])->name('insights.index');
+    Route::get('/insights/forecast', [AIInsightController::class, 'forecast'])->name('insights.forecast');
+    Route::get('/insights/{periodKey}', [AIInsightController::class, 'show'])->name('insights.show');
+    Route::post('/insights/generate', [AIInsightController::class, 'generate'])->name('insights.generate');
 });
 
 require __DIR__.'/auth.php';

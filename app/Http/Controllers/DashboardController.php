@@ -95,43 +95,47 @@ class DashboardController extends Controller
         $rows = Cache::remember($key, self::CACHE_TTL_SECONDS, function () use ($userId, $period) {
             $baseQuery = Transaction::forUser($userId)->excludingTransfers();
 
-        if ($period === 'daily') {
-            $startDate = Carbon::now()->subDays(30)->startOfDay();
-            $baseQuery->where('occurred_at', '>=', $startDate);
+            if ($period === 'daily') {
+                $startDate = Carbon::now()->subDays(30)->startOfDay();
+                $baseQuery->where('occurred_at', '>=', $startDate);
 
-            $rows = (clone $baseQuery)
-                ->selectRaw("DATE(occurred_at) as date")
-                ->selectRaw("SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as income", [TransactionType::Income->value])
-                ->selectRaw("SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as expense", [TransactionType::Expense->value])
-                ->groupBy(DB::raw('DATE(occurred_at)'))
-                ->orderBy('date')
-                ->get();
+                $rows = (clone $baseQuery)
+                    ->selectRaw('DATE(occurred_at) as date')
+                    ->selectRaw('SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as income', [TransactionType::Income->value])
+                    ->selectRaw('SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as expense', [TransactionType::Expense->value])
+                    ->groupBy(DB::raw('DATE(occurred_at)'))
+                    ->orderBy('date')
+                    ->get();
 
-            $rows = $rows->map(fn ($r) => [
-                'date' => Carbon::parse($r->date)->format('Y-m-d'),
-                'income' => (float) ($r->income ?? 0),
-                'expense' => (float) ($r->expense ?? 0),
-                'net' => (float) (($r->income ?? 0) - ($r->expense ?? 0)),
-            ]);
-        } else {
-            $startDate = Carbon::now()->subMonths(12)->startOfMonth();
-            $baseQuery->where('occurred_at', '>=', $startDate);
+                $rows = $rows->map(fn ($r) => [
+                    'date' => Carbon::parse($r->date)->format('Y-m-d'),
+                    'income' => (float) ($r->income ?? 0),
+                    'expense' => (float) ($r->expense ?? 0),
+                    'net' => (float) (($r->income ?? 0) - ($r->expense ?? 0)),
+                ]);
+            } else {
+                $startDate = Carbon::now()->subMonths(12)->startOfMonth();
+                $baseQuery->where('occurred_at', '>=', $startDate);
 
-            $rows = (clone $baseQuery)
-                ->selectRaw("DATE_FORMAT(occurred_at, '%Y-%m-01') as date")
-                ->selectRaw("SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as income", [TransactionType::Income->value])
-                ->selectRaw("SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as expense", [TransactionType::Expense->value])
-                ->groupBy(DB::raw("DATE_FORMAT(occurred_at, '%Y-%m-01')"))
-                ->orderBy('date')
-                ->get();
+                $monthBucket = DB::getDriverName() === 'sqlite'
+                    ? "strftime('%Y-%m-01', occurred_at)"
+                    : "DATE_FORMAT(occurred_at, '%Y-%m-01')";
 
-            $rows = $rows->map(fn ($r) => [
-                'date' => Carbon::parse($r->date)->format('Y-m-d'),
-                'income' => (float) ($r->income ?? 0),
-                'expense' => (float) ($r->expense ?? 0),
-                'net' => (float) (($r->income ?? 0) - ($r->expense ?? 0)),
-            ]);
-        }
+                $rows = (clone $baseQuery)
+                    ->selectRaw("{$monthBucket} as date")
+                    ->selectRaw('SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as income', [TransactionType::Income->value])
+                    ->selectRaw('SUM(CASE WHEN type = ? THEN amount ELSE 0 END) as expense', [TransactionType::Expense->value])
+                    ->groupBy(DB::raw($monthBucket))
+                    ->orderBy('date')
+                    ->get();
+
+                $rows = $rows->map(fn ($r) => [
+                    'date' => Carbon::parse($r->date)->format('Y-m-d'),
+                    'income' => (float) ($r->income ?? 0),
+                    'expense' => (float) ($r->expense ?? 0),
+                    'net' => (float) (($r->income ?? 0) - ($r->expense ?? 0)),
+                ]);
+            }
 
             return $rows->values()->toArray();
         });
@@ -150,28 +154,28 @@ class DashboardController extends Controller
         $data = Cache::remember($key, self::CACHE_TTL_SECONDS, function () use ($userId) {
             [$startOfMonth, $endOfMonth] = $this->currentMonthRange();
 
-        $rows = Transaction::forUser($userId)
-            ->where('type', TransactionType::Expense)
-            ->whereBetween('occurred_at', [$startOfMonth, $endOfMonth])
-            ->whereNotNull('category_transaction')
-            ->selectRaw('category_transaction')
-            ->selectRaw('SUM(amount) as total')
-            ->groupBy('category_transaction')
-            ->orderByDesc('total')
-            ->get();
+            $rows = Transaction::forUser($userId)
+                ->where('type', TransactionType::Expense)
+                ->whereBetween('occurred_at', [$startOfMonth, $endOfMonth])
+                ->whereNotNull('category_transaction')
+                ->selectRaw('category_transaction')
+                ->selectRaw('SUM(amount) as total')
+                ->groupBy('category_transaction')
+                ->orderByDesc('total')
+                ->get();
 
-        $grandTotal = $rows->sum('total');
+            $grandTotal = $rows->sum('total');
 
-        $data = $rows->map(function ($r) use ($grandTotal) {
-            $total = (float) $r->total;
-            $categoryName = TransactionCategory::tryFrom($r->category_transaction)?->name ?? 'Uncategorized';
+            $data = $rows->map(function ($r) use ($grandTotal) {
+                $total = (float) $r->total;
+                $categoryName = TransactionCategory::tryFrom($r->category_transaction)?->name ?? 'Uncategorized';
 
-            return [
-                'category_name' => $categoryName,
-                'total' => $total,
-                'percentage' => $grandTotal > 0 ? round(($total / $grandTotal) * 100, 2) : 0,
-            ];
-        })->values()->toArray();
+                return [
+                    'category_name' => $categoryName,
+                    'total' => $total,
+                    'percentage' => $grandTotal > 0 ? round(($total / $grandTotal) * 100, 2) : 0,
+                ];
+            })->values()->toArray();
 
             return $data;
         });
@@ -189,15 +193,15 @@ class DashboardController extends Controller
 
         $data = Cache::remember($key, self::CACHE_TTL_SECONDS, function () use ($userId) {
             return Wallet::belongsToUser($userId)
-            ->where('is_active', true)
-            ->get(['id', 'name', 'balance'])
-            ->map(fn ($w) => [
-                'wallet_id' => $w->id,
-                'wallet_name' => $w->name,
-                'balance' => (float) $w->balance,
-            ])
-            ->values()
-            ->toArray();
+                ->where('is_active', true)
+                ->get(['id', 'name', 'balance'])
+                ->map(fn ($w) => [
+                    'wallet_id' => $w->id,
+                    'wallet_name' => $w->name,
+                    'balance' => (float) $w->balance,
+                ])
+                ->values()
+                ->toArray();
         });
 
         return response()->json($data);
@@ -214,19 +218,19 @@ class DashboardController extends Controller
         $data = Cache::remember($key, self::CACHE_TTL_SECONDS, function () use ($userId) {
             $startDate = Carbon::now()->subDays(30)->startOfDay();
 
-        $rows = Transaction::forUser($userId)
-            ->where('type', TransactionType::Expense)
-            ->where('occurred_at', '>=', $startDate)
-            ->selectRaw('DATE(occurred_at) as date')
-            ->selectRaw('SUM(amount) as total_expense')
-            ->groupBy(DB::raw('DATE(occurred_at)'))
-            ->orderBy('date')
-            ->get();
+            $rows = Transaction::forUser($userId)
+                ->where('type', TransactionType::Expense)
+                ->where('occurred_at', '>=', $startDate)
+                ->selectRaw('DATE(occurred_at) as date')
+                ->selectRaw('SUM(amount) as total_expense')
+                ->groupBy(DB::raw('DATE(occurred_at)'))
+                ->orderBy('date')
+                ->get();
 
-        return $rows->map(fn ($r) => [
-            'date' => Carbon::parse($r->date)->format('Y-m-d'),
-            'total_expense' => (float) $r->total_expense,
-        ])->values()->toArray();
+            return $rows->map(fn ($r) => [
+                'date' => Carbon::parse($r->date)->format('Y-m-d'),
+                'total_expense' => (float) $r->total_expense,
+            ])->values()->toArray();
         });
 
         return response()->json($data);
@@ -243,22 +247,22 @@ class DashboardController extends Controller
         $data = Cache::remember($key, self::CACHE_TTL_SECONDS, function () use ($userId) {
             [$startOfMonth, $endOfMonth] = $this->currentMonthRange();
 
-        $transactions = Transaction::forUser($userId)
-            ->where('type', TransactionType::Expense)
-            ->whereBetween('occurred_at', [$startOfMonth, $endOfMonth])
-            ->with('wallet:id,name')
-            ->orderByDesc('amount')
-            ->limit(5)
-            ->get(['id', 'amount', 'description', 'occurred_at', 'category_transaction', 'wallet_id']);
+            $transactions = Transaction::forUser($userId)
+                ->where('type', TransactionType::Expense)
+                ->whereBetween('occurred_at', [$startOfMonth, $endOfMonth])
+                ->with('wallet:id,name')
+                ->orderByDesc('amount')
+                ->limit(5)
+                ->get(['id', 'amount', 'description', 'occurred_at', 'category_transaction', 'wallet_id']);
 
-        return $transactions->map(fn ($t) => [
-            'id' => $t->id,
-            'amount' => (float) $t->amount,
-            'description' => $t->description ?? '-',
-            'occurred_at' => $t->occurred_at->format('Y-m-d H:i'),
-            'category_name' => TransactionCategory::tryFrom($t->category_transaction)?->name ?? 'Uncategorized',
-            'wallet_name' => $t->wallet?->name ?? '-',
-        ])->values()->toArray();
+            return $transactions->map(fn ($t) => [
+                'id' => $t->id,
+                'amount' => (float) $t->amount,
+                'description' => $t->description ?? '-',
+                'occurred_at' => $t->occurred_at->format('Y-m-d H:i'),
+                'category_name' => TransactionCategory::tryFrom($t->category_transaction)?->name ?? 'Uncategorized',
+                'wallet_name' => $t->wallet?->name ?? '-',
+            ])->values()->toArray();
         });
 
         return response()->json($data);

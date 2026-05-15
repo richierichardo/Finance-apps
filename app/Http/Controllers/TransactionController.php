@@ -12,7 +12,6 @@ use App\Models\Transaction;
 use App\Models\Wallet;
 use App\Services\TransactionService;
 use App\Services\TransferService;
-use App\Controller\Rule;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -26,6 +25,7 @@ class TransactionController extends Controller
         protected TransactionService $transactionService,
         protected TransferService $transferService
     ) {}
+
     public function index(Request $request): Response
     {
         $this->authorize('viewAny', Transaction::class);
@@ -46,7 +46,11 @@ class TransactionController extends Controller
             $query->whereDate('occurred_at', '<=', $request->date_to);
         }
 
-        $transactions = $query->orderByDesc('occurred_at')->paginate(15);
+        $totalIncome = (float) (clone $query)->where('type', 'income')->sum('amount');
+        $totalExpense = (float) (clone $query)->where('type', 'expense')->sum('amount');
+        $totalCount = (clone $query)->count();
+
+        $transactions = (clone $query)->orderByDesc('occurred_at')->paginate(15);
         $wallets = Wallet::belongsToUser(auth()->id())->get();
 
         $categories = Category::orderBy('name')->get(['id', 'name', 'slug']);
@@ -56,6 +60,12 @@ class TransactionController extends Controller
             'wallets' => $wallets,
             'categories' => $categories,
             'filters' => $request->only(['wallet_id', 'type', 'date_from', 'date_to']),
+            'summary' => [
+                'total_income' => $totalIncome,
+                'total_expense' => $totalExpense,
+                'net_cashflow' => $totalIncome - $totalExpense,
+                'total_count' => $totalCount,
+            ],
         ]);
     }
 
@@ -67,9 +77,9 @@ class TransactionController extends Controller
         return Inertia::render('Transactions/Create', [
             'wallets' => $wallets,
             'categoriesExpenses' => collect(TransactionCategoryExpenses::cases())->map(fn ($c) => [
-                    'value' => $c->value,
-                    'label' => $c->name,
-                ])->values()->toArray(),
+                'value' => $c->value,
+                'label' => $c->name,
+            ])->values()->toArray(),
             'categoriesIncome' => collect(TransactionCategoryIncome::cases())->map(fn ($c) => [
                 'value' => $c->value,
                 'label' => $c->name,
@@ -88,13 +98,7 @@ class TransactionController extends Controller
             'wallet_id' => $wallet->id,
             'type' => $request->type,
             'amount' => $request->amount,
-            'category_transaction' => [
-                'nullable',
-                Rule::in([
-                    ...array_column(TransactionCategoryIncome::cases(), 'value'),
-                    ...array_column(TransactionCategoryExpenses::cases(), 'value'),
-                ]),
-            ],
+            'category_transaction' => $request->category_transaction,
             'description' => $request->description,
             'source' => $request->source ?? 'web',
             'occurred_at' => $request->occurred_at,

@@ -11,6 +11,8 @@ return [
     'spending_increase_threshold_percent' => env('INSIGHT_SPENDING_INCREASE_THRESHOLD', 20),
     'budget_warning_threshold' => env('INSIGHT_BUDGET_WARNING_THRESHOLD', 70),
 
+    'llm_enabled' => env('INSIGHT_LLM_ENABLED', true),
+
     /*
     |--------------------------------------------------------------------------
     | Period Format

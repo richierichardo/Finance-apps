@@ -1,4 +1,7 @@
+import CurrencyInput from '@/Components/CurrencyInput';
+import DateTimeInput from '@/Components/DateTimeInput';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { normalizeCurrencyRaw } from '@/utils/currency';
 import { Head, Link, useForm } from '@inertiajs/react';
 
 export default function Edit({ transaction, wallets, categoriesIncome = [], categoriesExpenses = [] }) {
@@ -8,12 +11,12 @@ export default function Edit({ transaction, wallets, categoriesIncome = [], cate
     const { data, setData, put, processing, errors } = useForm({
         wallet_id: transaction.wallet_id,
         type: typeValue,
-        amount: transaction.amount,
+        amount: normalizeCurrencyRaw(transaction.amount),
         category_transaction: (typeof transaction.category_transaction === 'object' && transaction.category_transaction?.value)
             ? transaction.category_transaction.value
             : (transaction.category_transaction || ''),
         description: transaction.description || '',
-        occurred_at: transaction.occurred_at ? new Date(transaction.occurred_at).toISOString().slice(0, 16) : '',
+        occurred_at: transaction.occurred_at ? new Date(transaction.occurred_at).toISOString() : '',
     });
 
     const handleSubmit = (e) => {
@@ -85,25 +88,22 @@ export default function Edit({ transaction, wallets, categoriesIncome = [], cate
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700">Amount</label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
+                            <CurrencyInput
                                 value={data.amount}
-                                onChange={(e) => setData('amount', e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                onChange={(raw) => setData('amount', raw)}
+                                error={errors.amount}
+                                required
                             />
-                            {errors.amount && <p className="mt-1 text-sm text-red-600">{errors.amount}</p>}
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Date & Time</label>
-                            <input
-                                type="datetime-local"
+                            <DateTimeInput
+                                id="occurred_at"
+                                label="Date & Time"
                                 value={data.occurred_at}
-                                onChange={(e) => setData('occurred_at', e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                onChange={(iso) => setData('occurred_at', iso)}
+                                error={errors.occurred_at}
+                                required
                             />
-                            {errors.occurred_at && <p className="mt-1 text-sm text-red-600">{errors.occurred_at}</p>}
                         </div>
                         <div className="col-span-2">
                             <label className="block text-sm font-medium text-gray-700">Description</label>

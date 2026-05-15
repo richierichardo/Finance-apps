@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('INSIGHT_LLM_MODEL', 'gpt-4o-mini'),
+    ],
+
 ];

@@ -1,7 +1,17 @@
+import ActionIconButton from '@/Components/ActionIconButton';
+import CurrencyInput from '@/Components/CurrencyInput';
+import DateInput from '@/Components/DateInput';
+import EmptyState from '@/Components/EmptyState';
+import RecurringPreviewCard from '@/Components/RecurringPreviewCard';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Modal from '@/Components/Modal';
-import { Head, Link, router } from '@inertiajs/react';
+import { cleanCurrencyValue, normalizeCurrencyRaw } from '@/utils/currency';
+import { formatRupiah } from '@/utils/format';
+import { Head, router } from '@inertiajs/react';
 import { useState } from 'react';
+
+const fieldClass =
+    'mt-1 block w-full rounded-xl border-slate-300 text-slate-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500';
 
 export default function Index({
     recurringTransactions = [],
@@ -49,7 +59,7 @@ export default function Index({
             wallet_id: String(r.wallet_id),
             category_id: String(r.category_id),
             type: r.type,
-            amount: String(r.amount),
+            amount: normalizeCurrencyRaw(r.amount),
             description: r.description || '',
             frequency: r.frequency,
             interval: String(r.interval),
@@ -66,7 +76,7 @@ export default function Index({
             wallet_id: form.wallet_id,
             category_id: form.category_id,
             type: form.type,
-            amount: parseFloat(form.amount),
+            amount: parseFloat(cleanCurrencyValue(form.amount) || '0'),
             description: form.description || null,
             frequency: form.frequency,
             interval: parseInt(form.interval, 10) || 1,
@@ -94,11 +104,9 @@ export default function Index({
     };
 
     const handleDelete = (r) => {
-        if (window.confirm(`Delete recurring "${r.description || 'Recurring'}"?`)) {
-            router.delete(route('recurring-transactions.destroy', r.id), {
-                preserveScroll: true,
-            });
-        }
+        router.delete(route('recurring-transactions.destroy', r.id), {
+            preserveScroll: true,
+        });
     };
 
     const handleToggle = (r) => {
@@ -106,13 +114,6 @@ export default function Index({
             preserveScroll: true,
         });
     };
-
-    const formatCurrency = (n) =>
-        new Intl.NumberFormat('id-ID', {
-            style: 'decimal',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0,
-        }).format(Number(n));
 
     const frequencyLabel = (f, i) => {
         const n = parseInt(i, 10) || 1;
@@ -147,12 +148,24 @@ export default function Index({
                     <div className="overflow-hidden rounded-lg bg-white shadow">
                         <div className="overflow-x-auto">
                             {recurringTransactions.length === 0 ? (
-                                <div className="p-6">
-                                    <p className="text-gray-500">No recurring transactions yet.</p>
-                                    <p className="mt-1 text-sm text-gray-400">
-                                        Create recurring items like Rent, Netflix, Salary.
-                                    </p>
-                                </div>
+                                <EmptyState
+                                    icon={
+                                        <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                        </svg>
+                                    }
+                                    title="No recurring transactions yet"
+                                    subtitle="Create recurring items like rent, subscriptions, or salary."
+                                    primaryAction={
+                                        <button
+                                            type="button"
+                                            onClick={openCreate}
+                                            className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+                                        >
+                                            Create Recurring
+                                        </button>
+                                    }
+                                />
                             ) : (
                                 <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50">
@@ -184,7 +197,7 @@ export default function Index({
                                                     {r.type}
                                                 </td>
                                                 <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">
-                                                    {formatCurrency(r.amount)}
+                                                    {formatRupiah(r.amount)}
                                                 </td>
                                                 <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
                                                     {frequencyLabel(r.frequency, r.interval)}
@@ -210,29 +223,24 @@ export default function Index({
                                                     </button>
                                                 </td>
                                                 <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => { setViewingRecurring(r); setShowViewModal(true); }}
-                                                        className="font-medium text-indigo-600 hover:text-indigo-500"
-                                                    >
-                                                        View
-                                                    </button>
-                                                    <span className="mx-1 text-gray-300">|</span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openEdit(r)}
-                                                        className="font-medium text-indigo-600 hover:text-indigo-500"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                    <span className="mx-1 text-gray-300">|</span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDelete(r)}
-                                                        className="font-medium text-red-600 hover:text-red-500"
-                                                    >
-                                                        Delete
-                                                    </button>
+                                                    <div className="inline-flex items-center justify-end gap-1">
+                                                        <ActionIconButton
+                                                            type="view"
+                                                            onClick={() => {
+                                                                setViewingRecurring(r);
+                                                                setShowViewModal(true);
+                                                            }}
+                                                        />
+                                                        <ActionIconButton
+                                                            type="edit"
+                                                            onClick={() => openEdit(r)}
+                                                        />
+                                                        <ActionIconButton
+                                                            type="delete"
+                                                            confirmMessage={`Delete recurring "${r.description || 'Recurring'}"?`}
+                                                            onClick={() => handleDelete(r)}
+                                                        />
+                                                    </div>
                                                 </td>
                                             </tr>
                                         ))}
@@ -267,7 +275,7 @@ export default function Index({
                             </div>
                             <div>
                                 <dt className="text-sm font-medium text-gray-500">Amount</dt>
-                                <dd className="mt-1 text-sm text-gray-900">{formatCurrency(viewingRecurring.amount)}</dd>
+                                <dd className="mt-1 text-sm text-gray-900">{formatRupiah(viewingRecurring.amount)}</dd>
                             </div>
                             <div>
                                 <dt className="text-sm font-medium text-gray-500">Frequency</dt>
@@ -297,135 +305,151 @@ export default function Index({
                 )}
             </Modal>
 
-            <Modal show={showModal} onClose={() => { setShowModal(false); resetForm(); }}>
-                <form onSubmit={handleSubmit} className="p-6">
-                    <h3 className="text-lg font-medium text-gray-900">
-                        {editingId ? 'Edit Recurring Transaction' : 'Create Recurring Transaction'}
-                    </h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                        Set up recurring income or expenses (e.g. Rent, Netflix, Salary).
-                    </p>
-                    <div className="mt-4 space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Wallet</label>
-                            <select
-                                required
-                                value={form.wallet_id}
-                                onChange={(e) => setForm((f) => ({ ...f, wallet_id: e.target.value }))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                            >
-                                <option value="">Select wallet</option>
-                                {wallets?.map((w) => (
-                                    <option key={w.id} value={w.id}>{w.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Category</label>
-                            <select
-                                required
-                                value={form.category_id}
-                                onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                            >
-                                <option value="">Select category</option>
-                                {categories?.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Type</label>
-                            <select
-                                required
-                                value={form.type}
-                                onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                            >
-                                <option value="expense">Expense</option>
-                                <option value="income">Income</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Amount</label>
-                            <input
-                                type="number"
-                                required
-                                min="0.01"
-                                step="0.01"
-                                value={form.amount}
-                                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                placeholder="e.g. 150000"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Description</label>
-                            <input
-                                type="text"
-                                value={form.description}
-                                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                placeholder="e.g. Netflix subscription"
-                            />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Frequency</label>
-                                <select
-                                    required
-                                    value={form.frequency}
-                                    onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value }))}
-                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                >
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="monthly">Monthly</option>
-                                </select>
+            <Modal
+                show={showModal}
+                onClose={() => {
+                    setShowModal(false);
+                    resetForm();
+                }}
+                maxWidth="3xl"
+                scrollable
+            >
+                <form onSubmit={handleSubmit} className="flex flex-col">
+                    <div className="border-b border-slate-100 px-6 py-4">
+                        <h3 className="text-lg font-semibold text-slate-950">
+                            {editingId ? 'Edit Recurring Transaction' : 'Create Recurring Transaction'}
+                        </h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Set up recurring income or expenses (e.g. Rent, Netflix, Salary).
+                        </p>
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-6 py-4">
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Wallet</label>
+                                    <select
+                                        required
+                                        value={form.wallet_id}
+                                        onChange={(e) => setForm((f) => ({ ...f, wallet_id: e.target.value }))}
+                                        className={fieldClass}
+                                    >
+                                        <option value="">Select wallet</option>
+                                        {wallets?.map((w) => (
+                                            <option key={w.id} value={w.id}>{w.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Category</label>
+                                    <select
+                                        required
+                                        value={form.category_id}
+                                        onChange={(e) => setForm((f) => ({ ...f, category_id: e.target.value }))}
+                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                        <option value="">Select category</option>
+                                        {categories?.map((c) => (
+                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Type</label>
+                                    <select
+                                        required
+                                        value={form.type}
+                                        onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
+                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                        <option value="expense">Expense</option>
+                                        <option value="income">Income</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700">Amount</label>
+                                    <CurrencyInput
+                                        value={form.amount}
+                                        onChange={(raw) => setForm((f) => ({ ...f, amount: raw }))}
+                                        required
+                                    />
+                                </div>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700">Interval</label>
-                                <input
-                                    type="number"
+
+                            <RecurringPreviewCard
+                                type={form.type}
+                                amount={form.amount}
+                                frequency={form.frequency}
+                                interval={form.interval}
+                                startDate={form.start_date}
+                            />
+
+                            <div className="grid grid-cols-2 gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Frequency</label>
+                                    <select
+                                        required
+                                        value={form.frequency}
+                                        onChange={(e) => setForm((f) => ({ ...f, frequency: e.target.value }))}
+                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    >
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Interval</label>
+                                    <input
+                                        type="number"
+                                        required
+                                        min="1"
+                                        value={form.interval}
+                                        onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
+                                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                <DateInput
+                                    id="start_date"
+                                    label="Start Date"
+                                    value={form.start_date}
+                                    onChange={(raw) => setForm((f) => ({ ...f, start_date: raw }))}
                                     required
-                                    min="1"
-                                    value={form.interval}
-                                    onChange={(e) => setForm((f) => ({ ...f, interval: e.target.value }))}
+                                />
+                                <DateInput
+                                    id="end_date"
+                                    label="End Date (optional)"
+                                    value={form.end_date}
+                                    onChange={(raw) => setForm((f) => ({ ...f, end_date: raw }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700">Description</label>
+                                <input
+                                    type="text"
+                                    value={form.description}
+                                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    placeholder="e.g. Netflix subscription"
                                 />
                             </div>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Start Date</label>
-                            <input
-                                type="date"
-                                required
-                                value={form.start_date}
-                                onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">End Date (optional)</label>
-                            <input
-                                type="date"
-                                value={form.end_date}
-                                onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                            />
-                        </div>
                     </div>
-                    <div className="mt-6 flex justify-end gap-2">
+                    <div className="flex justify-end gap-2 border-t border-slate-100 bg-white px-6 py-4">
                         <button
                             type="button"
-                            onClick={() => { setShowModal(false); resetForm(); }}
-                            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            onClick={() => {
+                                setShowModal(false);
+                                resetForm();
+                            }}
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
                         >
                             {editingId ? 'Update' : 'Create'}
                         </button>

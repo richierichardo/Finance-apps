@@ -1,7 +1,12 @@
-import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
-import { Head, Link, useForm } from "@inertiajs/react";
-import DatePicker from "react-datepicker";
-import "react-datepicker/dist/react-datepicker.css";
+import CurrencyInput from '@/Components/CurrencyInput';
+import DateTimeInput from '@/Components/DateTimeInput';
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { Head, Link, useForm } from '@inertiajs/react';
+
+const fieldClass =
+    'mt-1 block w-full rounded-xl border-slate-300 text-slate-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500';
+
+const labelClass = 'text-sm font-medium text-slate-700';
 
 export default function Create({
     wallets,
@@ -9,58 +14,52 @@ export default function Create({
     categoriesExpenses = [],
 }) {
     const { data, setData, post, processing, errors } = useForm({
-        wallet_id: wallets?.[0]?.id || "",
-        type: "income",
-        amount: "",
-        category_transaction: "",
-        description: "",
-        // stored as ISO string, but we'll display with custom picker
+        wallet_id: wallets?.[0]?.id || '',
+        type: 'income',
+        amount: '',
+        category_transaction: '',
+        description: '',
         occurred_at: new Date().toISOString(),
     });
 
     const categories =
-        data.type === "income" ? categoriesIncome : categoriesExpenses;
+        data.type === 'income' ? categoriesIncome : categoriesExpenses;
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        post(route("transactions.store"));
+        post(route('transactions.store'));
     };
 
     return (
-        <AuthenticatedLayout
-            header={
-                <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-semibold leading-tight text-gray-800">
-                        Add Transaction
-                    </h2>
+        <AuthenticatedLayout>
+            <Head title="Add Transaction" />
 
+            <div className="py-8">
+                <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
                     <Link
-                        href={route("transactions.index")}
-                        className="mb-4 inline-block text-sm text-indigo-600 hover:text-indigo-500"
+                        href={route('transactions.index')}
+                        className="inline-flex items-center text-sm text-slate-500 hover:text-slate-900"
                     >
                         ← Back to Transactions
                     </Link>
-                </div>
-            }
-        >
-            <Head title="Add Transaction" />
 
-            <div className="py-10">
-                <div className="mx-auto max-w-7xl sm:px-6 lg:px-8">
+                    <div className="mt-4">
+                        <h1 className="text-2xl font-semibold text-slate-950">Add Transaction</h1>
+                        <p className="mt-1 text-sm text-slate-600">
+                            Record income or expense for a wallet.
+                        </p>
+                    </div>
+
                     <form
                         onSubmit={handleSubmit}
-                        className="bg-white shadow-sm sm:rounded-lg p-6 md:grid md:grid-cols-2 md:gap-6 gap-y-6"
+                        className="mt-8 grid grid-cols-1 gap-6 rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm md:grid-cols-2 md:gap-8"
                     >
                         <div className="flex flex-col">
-                            <label className="text-sm font-medium text-gray-700">
-                                Wallet
-                            </label>
+                            <label className={labelClass}>Wallet</label>
                             <select
                                 value={data.wallet_id}
-                                onChange={(e) =>
-                                    setData("wallet_id", e.target.value)
-                                }
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                onChange={(e) => setData('wallet_id', e.target.value)}
+                                className={fieldClass}
                             >
                                 <option value="">Select wallet</option>
                                 {wallets?.map((w) => (
@@ -70,23 +69,19 @@ export default function Create({
                                 ))}
                             </select>
                             {errors.wallet_id && (
-                                <p className="mt-1 text-sm text-red-600">
-                                    {errors.wallet_id}
-                                </p>
+                                <p className="mt-1 text-sm text-red-600">{errors.wallet_id}</p>
                             )}
                         </div>
 
                         <div className="flex flex-col">
-                            <label className="text-sm font-medium text-gray-700">
-                                Type
-                            </label>
+                            <label className={labelClass}>Type</label>
                             <select
                                 value={data.type}
                                 onChange={(e) => {
-                                    setData("type", e.target.value);
-                                    setData("category_transaction", "");
+                                    setData('type', e.target.value);
+                                    setData('category_transaction', '');
                                 }}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                className={fieldClass}
                             >
                                 <option value="income">Income</option>
                                 <option value="expense">Expense</option>
@@ -94,18 +89,13 @@ export default function Create({
                         </div>
 
                         <div className="flex flex-col">
-                            <label className="text-sm font-medium text-gray-700">
-                                Category
-                            </label>
+                            <label className={labelClass}>Category</label>
                             <select
                                 value={data.category_transaction}
                                 onChange={(e) =>
-                                    setData(
-                                        "category_transaction",
-                                        e.target.value,
-                                    )
+                                    setData('category_transaction', e.target.value)
                                 }
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                className={fieldClass}
                             >
                                 <option value="">Select category</option>
                                 {categories?.map((cat) => (
@@ -122,75 +112,50 @@ export default function Create({
                         </div>
 
                         <div className="flex flex-col">
-                            <label className="text-sm font-medium text-gray-700">
-                                Amount
-                            </label>
-                            <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
+                            <label className={labelClass}>Amount</label>
+                            <CurrencyInput
+                                id="amount"
                                 value={data.amount}
-                                onChange={(e) =>
-                                    setData("amount", e.target.value)
-                                }
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                onChange={(raw) => setData('amount', raw)}
+                                error={errors.amount}
+                                required
+                                className="mt-1"
                             />
-                            {errors.amount && (
-                                <p className="mt-1 text-sm text-red-600">
-                                    {errors.amount}
-                                </p>
-                            )}
                         </div>
 
                         <div className="flex flex-col">
-                            <label className="text-sm font-medium text-gray-700">
-                                Date & Time
-                            </label>
-                            <DatePicker
-                                selected={
-                                    data.occurred_at
-                                        ? new Date(data.occurred_at)
-                                        : null
-                                }
-                                onChange={(date) => {
-                                    if (date)
-                                        setData(
-                                            "occurred_at",
-                                            date.toISOString(),
-                                        );
-                                }}
-                                showTimeSelect
-                                timeFormat="HH:mm"
-                                timeIntervals={15}
-                                dateFormat="dd/MM/yyyy HH:mm"
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                            <DateTimeInput
+                                id="occurred_at"
+                                label="Date & Time"
+                                value={data.occurred_at}
+                                onChange={(iso) => setData('occurred_at', iso)}
+                                error={errors.occurred_at}
+                                required
                             />
-                            {errors.occurred_at && (
-                                <p className="mt-1 text-sm text-red-600">
-                                    {errors.occurred_at}
-                                </p>
-                            )}
+                        </div>
+
+                        <div className="hidden flex-col justify-end md:flex">
+                            <p className="text-xs text-slate-500">
+                                Use categories to keep your spending organized.
+                            </p>
                         </div>
 
                         <div className="flex flex-col md:col-span-2">
-                            <label className="text-sm font-medium text-gray-700">
-                                Description
-                            </label>
+                            <label className={labelClass}>Description</label>
                             <input
                                 type="text"
                                 value={data.description}
-                                onChange={(e) =>
-                                    setData("description", e.target.value)
-                                }
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                onChange={(e) => setData('description', e.target.value)}
+                                className={fieldClass}
+                                placeholder="Optional note"
                             />
                         </div>
 
-                        <div className="md:col-span-2 flex justify-end">
+                        <div className="flex justify-end md:col-span-2">
                             <button
                                 type="submit"
                                 disabled={processing}
-                                className="rounded-md bg-indigo-600 px-6 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                                className="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
                             >
                                 Create Transaction
                             </button>

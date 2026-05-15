@@ -16,6 +16,8 @@ import {
     Legend,
 } from 'chart.js';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import { formatChartLabel } from '@/utils/date';
+import { formatRupiah } from '@/utils/format';
 import { useCallback, useEffect, useState } from 'react';
 
 ChartJS.register(
@@ -38,14 +40,6 @@ const chartOptions = {
     },
 };
 
-function formatCurrency(n) {
-    return new Intl.NumberFormat('id-ID', {
-        style: 'decimal',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-    }).format(n);
-}
-
 export default function Dashboard() {
     const [summary, setSummary] = useState(null);
     const [cashflow, setCashflow] = useState([]);
@@ -55,6 +49,7 @@ export default function Dashboard() {
     const [topExpenses, setTopExpenses] = useState([]);
     const [budgets, setBudgets] = useState([]);
     const [upcomingRecurring, setUpcomingRecurring] = useState([]);
+    const [forecast, setForecast] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [cashflowPeriod, setCashflowPeriod] = useState('monthly');
@@ -64,7 +59,7 @@ export default function Dashboard() {
         setError(null);
         try {
             const base = '/dashboard';
-            const [summaryRes, cashflowRes, categoryRes, walletRes, dailyRes, topRes, budgetsRes, upcomingRes] = await Promise.all([
+            const [summaryRes, cashflowRes, categoryRes, walletRes, dailyRes, topRes, budgetsRes, upcomingRes, forecastRes] = await Promise.all([
                 axios.get(`${base}/summary`),
                 axios.get(`${base}/cashflow`, { params: { period: cashflowPeriod } }),
                 axios.get(`${base}/category-breakdown`),
@@ -73,6 +68,7 @@ export default function Dashboard() {
                 axios.get(`${base}/top-expenses`),
                 axios.get(`${base}/budgets`),
                 axios.get(`${base}/upcoming-recurring`),
+                axios.get('/insights/forecast'),
             ]);
             setSummary(summaryRes.data);
             setCashflow(cashflowRes.data);
@@ -82,6 +78,7 @@ export default function Dashboard() {
             setTopExpenses(topRes.data);
             setBudgets(budgetsRes.data);
             setUpcomingRecurring(upcomingRes.data ?? []);
+            setForecast(forecastRes.data?.data ?? null);
         } catch (err) {
             setError(err.response?.data?.message || err.message || 'Failed to load dashboard');
         } finally {
@@ -94,7 +91,7 @@ export default function Dashboard() {
     }, [fetchDashboard]);
 
     const cashflowChartData = {
-        labels: cashflow.map((d) => d.date),
+        labels: cashflow.map((d) => formatChartLabel(d.date)),
         datasets: [
             { label: 'Income', data: cashflow.map((d) => d.income), backgroundColor: 'rgba(34, 197, 94, 0.5)', borderColor: 'rgb(34, 197, 94)' },
             { label: 'Expense', data: cashflow.map((d) => d.expense), backgroundColor: 'rgba(239, 68, 68, 0.5)', borderColor: 'rgb(239, 68, 68)' },
@@ -125,7 +122,7 @@ export default function Dashboard() {
     };
 
     const dailyExpenseChartData = {
-        labels: dailyExpense.map((d) => d.date),
+        labels: dailyExpense.map((d) => formatChartLabel(d.date)),
         datasets: [
             { label: 'Expense', data: dailyExpense.map((d) => d.total_expense), borderColor: 'rgb(239, 68, 68)', backgroundColor: 'rgba(239, 68, 68, 0.1)', fill: true },
         ],
@@ -172,22 +169,22 @@ export default function Dashboard() {
                         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                             <div className="rounded-lg bg-white p-4 shadow">
                                 <p className="text-sm text-gray-500">Total Income (Month)</p>
-                                <p className="text-xl font-semibold text-green-600">{formatCurrency(summary.total_income)}</p>
+                                <p className="text-xl font-semibold text-green-600">{formatRupiah(summary.total_income)}</p>
                             </div>
                             <div className="rounded-lg bg-white p-4 shadow">
                                 <p className="text-sm text-gray-500">Total Expense (Month)</p>
-                                <p className="text-xl font-semibold text-red-600">{formatCurrency(summary.total_expense)}</p>
+                                <p className="text-xl font-semibold text-red-600">{formatRupiah(summary.total_expense)}</p>
                             </div>
                             <div className="rounded-lg bg-white p-4 shadow">
                                 <p className="text-sm text-gray-500">Net Cashflow</p>
                                 <p className={`text-xl font-semibold ${summary.net_cashflow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    {formatCurrency(summary.net_cashflow)}
+                                    {formatRupiah(summary.net_cashflow)}
                                 </p>
                             </div>
                             <div className="rounded-lg bg-white p-4 shadow">
                                 <p className="text-sm text-gray-500">Total Balance (Wallets)</p>
                                 <p className="text-xl font-semibold text-gray-800">
-                                    {formatCurrency(summary.wallet_balances?.reduce((s, w) => s + w.balance, 0) ?? 0)}
+                                    {formatRupiah(summary.wallet_balances?.reduce((s, w) => s + w.balance, 0) ?? 0)}
                                 </p>
                             </div>
                         </div>
@@ -271,12 +268,38 @@ export default function Dashboard() {
                                             <p className="font-medium text-gray-800">{t.description}</p>
                                             <p className="text-sm text-gray-500">{t.occurred_at} · {t.category_name} · {t.wallet_name}</p>
                                         </div>
-                                        <p className="font-semibold text-red-600">{formatCurrency(t.amount)}</p>
+                                        <p className="font-semibold text-red-600">{formatRupiah(t.amount)}</p>
                                     </li>
                                 ))}
                             </ul>
                         ) : (
                             <p className="text-gray-400">No expenses this month</p>
+                        )}
+                    </div>
+
+                    {/* Forecast (Beta) */}
+                    <div className="mt-8 rounded-lg bg-white p-6 shadow">
+                        <h3 className="mb-1 text-lg font-medium text-gray-800">Forecast (Beta)</h3>
+                        <p className="mb-4 text-sm text-gray-500">Approximate projection based on historical trend.</p>
+                        {!forecast || forecast.forecast_available === false ? (
+                            <p className="text-gray-500">Forecasting coming soon.</p>
+                        ) : (
+                            <div className="grid gap-4 sm:grid-cols-3">
+                                <div>
+                                    <p className="text-xs text-gray-500">Projected Income</p>
+                                    <p className="text-lg font-semibold text-green-600">{formatRupiah(forecast.projected_income ?? 0)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500">Projected Expense</p>
+                                    <p className="text-lg font-semibold text-red-600">{formatRupiah(forecast.projected_expense ?? 0)}</p>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-gray-500">Projected Net</p>
+                                    <p className={`text-lg font-semibold ${(forecast.projected_net ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {formatRupiah(forecast.projected_net ?? 0)}
+                                    </p>
+                                </div>
+                            </div>
                         )}
                     </div>
                 </div>

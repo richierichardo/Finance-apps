@@ -2,21 +2,21 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\Facades\Vite;
-use Illuminate\Support\ServiceProvider;
-use Illuminate\Validation\Rules\Password;
-use Illuminate\Support\Facades\Gate;
-use App\Models\User;
+use App\Contracts\LLMProviderInterface;
 use App\Models\Budget;
 use App\Models\RecurringTransaction;
 use App\Models\Transaction;
+use App\Models\User;
 use App\Models\Wallet;
+use App\Observers\WalletObserver;
 use App\Policies\BudgetPolicy;
 use App\Policies\RecurringTransactionPolicy;
-use App\Policies\WalletPolicy;
 use App\Policies\TransactionPolicy;
-use App\Observers\WalletObserver;
-
+use App\Policies\WalletPolicy;
+use App\Services\LLM\OpenAIProvider;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -25,7 +25,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(LLMProviderInterface::class, OpenAIProvider::class);
     }
 
     /**

@@ -13,7 +13,7 @@ export default function VerifyEmail({ status }) {
 
     return (
         <GuestLayout>
-            <Head title="Verifikasi Email - Finance Tracker" />
+            <Head title="Verifikasi Email - Flowlet" />
 
             <div className="mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">

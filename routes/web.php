@@ -1,6 +1,10 @@
 <?php
 
+use App\Http\Controllers\AIChatController;
+use App\Http\Controllers\AIUsageController;
 use App\Http\Controllers\AIInsightController;
+use App\Http\Controllers\TelegramLinkController;
+use App\Http\Controllers\TelegramWebhookController;
 use App\Http\Controllers\BudgetController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
@@ -11,6 +15,9 @@ use App\Http\Controllers\WalletController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+
+Route::post('/telegram/webhook/{secret}', [TelegramWebhookController::class, 'handle'])
+    ->name('telegram.webhook');
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
@@ -77,6 +84,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/insights/forecast', [AIInsightController::class, 'forecast'])->name('insights.forecast');
     Route::get('/insights/{periodKey}', [AIInsightController::class, 'show'])->name('insights.show');
     Route::post('/insights/generate', [AIInsightController::class, 'generate'])->name('insights.generate');
+
+    Route::get('/ai/usage-summary', [AIUsageController::class, 'summary'])->name('ai.usage-summary');
+    Route::post('/ai/chat', [AIChatController::class, 'chat'])->name('ai.chat');
+    Route::post('/ai/action-drafts/{draft}/confirm', [AIChatController::class, 'confirm'])->name('ai.action.confirm');
+    Route::post('/ai/action-drafts/{draft}/cancel', [AIChatController::class, 'cancel'])->name('ai.action.cancel');
+
+    Route::post('/telegram/link-token', [TelegramLinkController::class, 'store'])->name('telegram.link-token');
 });
 
 require __DIR__.'/auth.php';

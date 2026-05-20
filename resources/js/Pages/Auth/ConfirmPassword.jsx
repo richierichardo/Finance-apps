@@ -20,7 +20,7 @@ export default function ConfirmPassword() {
 
     return (
         <GuestLayout>
-            <Head title="Konfirmasi Password - Finance Tracker" />
+            <Head title="Konfirmasi Password - Flowlet" />
 
             <div className="mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">

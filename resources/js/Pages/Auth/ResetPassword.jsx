@@ -23,7 +23,7 @@ export default function ResetPassword({ token, email }) {
 
     return (
         <GuestLayout>
-            <Head title="Reset Password - Finance Tracker" />
+            <Head title="Reset Password - Flowlet" />
 
             <div className="mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">

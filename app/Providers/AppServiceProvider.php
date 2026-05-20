@@ -3,12 +3,14 @@
 namespace App\Providers;
 
 use App\Contracts\LLMProviderInterface;
+use App\Models\AiActionDraft;
 use App\Models\Budget;
 use App\Models\RecurringTransaction;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Observers\WalletObserver;
+use App\Policies\AiActionDraftPolicy;
 use App\Policies\BudgetPolicy;
 use App\Policies\RecurringTransactionPolicy;
 use App\Policies\TransactionPolicy;
@@ -58,6 +60,7 @@ class AppServiceProvider extends ServiceProvider
             return $user->is_superadmin;
         });
 
+        Gate::policy(AiActionDraft::class, AiActionDraftPolicy::class);
         Gate::policy(Wallet::class, WalletPolicy::class);
         Gate::policy(Transaction::class, TransactionPolicy::class);
         Gate::policy(Budget::class, BudgetPolicy::class);

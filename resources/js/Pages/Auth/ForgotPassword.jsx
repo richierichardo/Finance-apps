@@ -18,7 +18,7 @@ export default function ForgotPassword({ status }) {
 
     return (
         <GuestLayout>
-            <Head title="Lupa Password - Finance Tracker" />
+            <Head title="Lupa Password - Flowlet" />
 
             <div className="mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">

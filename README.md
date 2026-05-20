@@ -238,6 +238,20 @@ php artisan queue:work
 php artisan schedule:work
 ```
 
+### Telegram bot (local development)
+
+Webhook must return `200 OK` quickly; AI replies are processed on the queue.
+
+```bash
+php artisan serve --host=127.0.0.1 --port=8000
+npm run dev
+ngrok http 8000
+php artisan telegram:set-webhook
+php artisan queue:work --queue=telegram,default --tries=3 --timeout=90
+```
+
+Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `APP_URL` (ngrok HTTPS URL) in `.env`.
+
 ### Useful Commands
 
 ```bash

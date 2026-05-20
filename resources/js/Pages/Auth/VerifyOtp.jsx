@@ -113,7 +113,7 @@ export default function VerifyOtp({ email: initialEmail }) {
 
     return (
         <GuestLayout>
-            <Head title="Verifikasi OTP - Finance Tracker" />
+            <Head title="Verifikasi OTP - Flowlet" />
 
             <div className="mb-6">
                 <h2 className="text-xl text-center font-bold text-slate-900 dark:text-white">

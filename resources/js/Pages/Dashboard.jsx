@@ -1,3 +1,4 @@
+import AIAssistantCard from '@/Components/AIAssistantCard';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import BudgetProgress from '@/Components/BudgetProgress';
 import UpcomingRecurring from '@/Components/UpcomingRecurring';
@@ -301,6 +302,10 @@ export default function Dashboard() {
                                 </div>
                             </div>
                         )}
+                    </div>
+
+                    <div className="mt-8">
+                        <AIAssistantCard />
                     </div>
                 </div>
             </div>

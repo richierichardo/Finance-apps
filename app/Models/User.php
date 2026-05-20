@@ -105,4 +105,19 @@ class User extends Authenticatable
     {
         return $this->hasMany(AIInsight::class);
     }
+
+    public function telegramAccount()
+    {
+        return $this->hasOne(TelegramAccount::class);
+    }
+
+    public function aiConversations()
+    {
+        return $this->hasMany(AiConversation::class);
+    }
+
+    public function aiActionDrafts()
+    {
+        return $this->hasMany(AiActionDraft::class);
+    }
 }

@@ -24,7 +24,7 @@ export default function Register() {
 
     return (
         <GuestLayout>
-            <Head title="Daftar - Finance Tracker" />
+            <Head title="Daftar - Flowlet" />
 
             <div className="mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">

@@ -23,14 +23,14 @@ export default function Login({ status, canResetPassword }) {
 
     return (
         <GuestLayout>
-            <Head title="Log in - Finance Tracker" />
+            <Head title="Log in - Flowlet" />
 
             <div className="mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                     Log in
                 </h2>
                 <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                    Masuk ke akun Finance Tracker Anda
+                    Masuk ke akun Flowlet Anda
                 </p>
             </div>
 

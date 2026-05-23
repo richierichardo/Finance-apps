@@ -8,12 +8,13 @@ class FinanceAIIntentService
 {
     private const COMPLETE_THRESHOLD = 0.85;
 
-    private const PARTIAL_THRESHOLD = 0.7;
+    private const PARTIAL_THRESHOLD = 0.65;
 
     public function __construct(
         protected QwenAIClientService $qwenClient,
         protected FinanceNLPNormalizerService $normalizer,
         protected FinanceAICommandParserService $commandParser,
+        protected FinanceAIClarificationService $clarificationService,
     ) {}
 
     /**
@@ -25,34 +26,50 @@ class FinanceAIIntentService
     {
         $commandResult = $this->commandParser->parse($userId, $userMessage, $context);
 
+        return $this->parseWithFallback($userId, $userMessage, $this->normalizer->normalize($userMessage), $commandResult, $context, $options);
+    }
+
+    /**
+     * @param  array<string, mixed>  $normalized
+     * @param  array<string, mixed>|null  $partialRulesResult
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
+     */
+    public function parseWithFallback(
+        int $userId,
+        string $originalMessage,
+        array $normalized,
+        ?array $partialRulesResult,
+        array $context,
+        array $options = [],
+    ): array {
+        $commandResult = $partialRulesResult ?? $this->commandParser->parse($userId, $originalMessage, $context);
+
         if ($this->shouldUseCommandResult($commandResult)) {
             return $this->toIntentShape($commandResult);
         }
 
-        if ($this->shouldReturnClarification($commandResult)) {
-            return $this->toIntentShape($commandResult);
-        }
-
         if ($options['skip_qwen'] ?? false) {
-            return $this->toIntentShape($commandResult['matched'] ? $commandResult : [
-                'matched' => false,
-                'intent' => 'unknown',
-                'confidence' => 0.3,
-                'requires_action' => false,
-                'action_type' => null,
-                'entities' => [],
-                'missing_fields' => [],
-                'clarifying_question' => 'Aku belum bisa memahami perintah itu. Coba tulis seperti: catat pengeluaran 25 ribu dari GOPAY buat kopi.',
-            ]);
+            return $this->finalizePartialOrUnknown($commandResult);
         }
 
-        $normalized = $this->normalizer->normalize($userMessage);
-        $text = $normalized['normalized_text'];
-
+        $text = $normalized['normalized_text'] ?? '';
+        $partialJson = $partialRulesResult !== null
+            ? json_encode($partialRulesResult, JSON_UNESCAPED_UNICODE)
+            : 'null';
+        $missingFields = $commandResult['missing_fields'] ?? [];
         $contextJson = json_encode($context, JSON_UNESCAPED_UNICODE);
+
         $messages = [
-            ['role' => 'system', 'content' => FinanceAISystemPrompt::intentExtraction()],
-            ['role' => 'user', 'content' => "Context:\n{$contextJson}\n\nUser message:\n{$userMessage}\n\nNormalized:\n{$text}"],
+            ['role' => 'system', 'content' => FinanceAISystemPrompt::repairParse()],
+            ['role' => 'user', 'content' => implode("\n", [
+                "Context:\n{$contextJson}",
+                "Original message:\n{$originalMessage}",
+                "Normalized:\n{$text}",
+                "Partial rule parse:\n{$partialJson}",
+                'Missing fields: '.json_encode($missingFields, JSON_UNESCAPED_UNICODE),
+            ])],
         ];
 
         $qwenOptions = array_merge([
@@ -64,35 +81,18 @@ class FinanceAIIntentService
 
         $response = $this->qwenClient->chat($messages, $qwenOptions);
 
-        if ($response['ok'] && $response['content']) {
+        if (($response['ok'] ?? false) && ! empty($response['content'])) {
             $parsed = $this->decodeIntentJson($response['content']);
             if ($parsed && ($parsed['confidence'] ?? 0) >= self::PARTIAL_THRESHOLD) {
-                $intent = $this->normalizeIntentFromLlm($parsed);
+                $intent = $this->mergeRepairResult($commandResult, $parsed);
                 $intent['model_called'] = true;
-                $intent['source'] = 'qwen';
+                $intent['source'] = 'qwen_repair';
 
                 return $intent;
             }
         }
 
-        if ($commandResult['matched'] ?? false) {
-            return $this->toIntentShape($commandResult);
-        }
-
-        return $this->toIntentShape([
-            'matched' => false,
-            'intent' => 'unknown',
-            'confidence' => 0.3,
-            'requires_action' => false,
-            'action_type' => null,
-            'entities' => [],
-            'missing_fields' => [],
-            'clarifying_question' => $response['error_type'] === 'timeout'
-                ? 'Aku belum bisa memahami perintah itu. Coba tulis seperti: catat pengeluaran 25 ribu dari GOPAY buat kopi.'
-                : 'Aku belum bisa memahami perintah itu. Coba tulis seperti: transfer 20 ribu dari GOPAY ke SHOPEEPAY.',
-            'model_called' => true,
-            'source' => 'qwen_fallback',
-        ]);
+        return $this->finalizePartialOrUnknown($commandResult);
     }
 
     /**
@@ -116,12 +116,85 @@ class FinanceAIIntentService
 
     /**
      * @param  array<string, mixed>  $commandResult
+     * @return array<string, mixed>
      */
-    private function shouldReturnClarification(array $commandResult): bool
+    private function finalizePartialOrUnknown(array $commandResult): array
     {
-        return ($commandResult['matched'] ?? false)
-            && ($commandResult['confidence'] ?? 0) >= self::PARTIAL_THRESHOLD
-            && ! empty($commandResult['missing_fields']);
+        if ($commandResult['matched'] ?? false) {
+            $intent = $this->toIntentShape($commandResult);
+            $actionType = $intent['action_type'] ?? null;
+            if (! empty($intent['missing_fields']) && $actionType) {
+                $intent['clarifying_question'] = $this->clarificationService->buildFieldSpecificClarification(
+                    $actionType,
+                    $intent['missing_fields'],
+                    $intent['entities'] ?? []
+                ) ?? $intent['clarifying_question'];
+            }
+
+            return $intent;
+        }
+
+        return $this->toIntentShape([
+            'matched' => false,
+            'intent' => 'unknown',
+            'confidence' => 0.3,
+            'requires_action' => false,
+            'action_type' => null,
+            'entities' => [],
+            'missing_fields' => [],
+            'clarifying_question' => 'Aku belum bisa memahami perintah itu. Coba tulis seperti: catat pengeluaran 25 ribu dari GOPAY buat kopi.',
+            'model_called' => false,
+            'source' => 'rules',
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $commandResult
+     * @param  array<string, mixed>  $aiParsed
+     * @return array<string, mixed>
+     */
+    private function mergeRepairResult(array $commandResult, array $aiParsed): array
+    {
+        $rulesEntities = $commandResult['entities'] ?? [];
+        $aiEntities = $aiParsed['entities'] ?? [];
+
+        if (($aiParsed['action_type'] ?? '') === 'create_wallet' || ($commandResult['action_type'] ?? '') === 'create_wallet') {
+            $merged = $this->clarificationService->normalizeWalletEntities(array_merge($rulesEntities, array_filter($aiEntities, fn ($v) => $v !== null && $v !== '')));
+            $aiEntities = $merged;
+        } else {
+            $aiEntities = array_merge($rulesEntities, array_filter($aiEntities, fn ($v) => $v !== null && $v !== ''));
+        }
+
+        $missing = [];
+        $actionType = $aiParsed['action_type'] ?? $commandResult['action_type'] ?? null;
+
+        if ($actionType === 'create_wallet') {
+            if (empty($aiEntities['wallet_name'])) {
+                $missing[] = 'wallet_name';
+            }
+            if (empty($aiEntities['wallet_type'])) {
+                $missing[] = 'wallet_type';
+            }
+        } else {
+            $missing = $aiParsed['missing_fields'] ?? $commandResult['missing_fields'] ?? [];
+        }
+
+        $clarifying = empty($missing)
+            ? null
+            : $this->clarificationService->buildFieldSpecificClarification($actionType ?? '', $missing, $aiEntities);
+
+        return [
+            'intent' => $aiParsed['intent'] ?? $commandResult['intent'] ?? 'unknown',
+            'confidence' => $aiParsed['confidence'] ?? $commandResult['confidence'] ?? 0.0,
+            'language' => 'id',
+            'requires_action' => $aiParsed['requires_action'] ?? $commandResult['requires_action'] ?? false,
+            'action_type' => $actionType,
+            'entities' => $aiEntities,
+            'missing_fields' => $missing,
+            'clarifying_question' => $clarifying,
+            'safety_flags' => $aiParsed['safety_flags'] ?? [],
+            'matched' => true,
+        ];
     }
 
     /**

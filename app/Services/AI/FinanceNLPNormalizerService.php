@@ -9,7 +9,7 @@ class FinanceNLPNormalizerService
      *   original: string,
      *   normalized_text: string,
      *   tokens: list<string>,
-     *   amount_candidates: list<array{raw: string, value: int, start: int|null, end: int|null}>,
+     *   amount_candidates: list<array{raw: string, value: int, confidence: float, source: string, start: int, end: int}>,
      *   hints: list<string>
      * }
      */
@@ -59,11 +59,12 @@ class FinanceNLPNormalizerService
     }
 
     /**
-     * @return list<array{raw: string, value: int, start: int|null, end: int|null}>
+     * @return list<array{raw: string, value: int, confidence: float, source: string, start: int, end: int}>
      */
     public function extractAmountCandidates(string $text): array
     {
         $amounts = [];
+        $consumedSpans = [];
 
         $unitPattern = 'ribu|rb|k|rebu|ribuan|rban|juta|jt|jutaan|jtaan|milyar|miliar|m';
 
@@ -75,6 +76,8 @@ class FinanceNLPNormalizerService
         )) {
             foreach ($matches as $m) {
                 $raw = trim($m[0][0]);
+                $start = $m[0][1];
+                $end = $start + strlen($raw);
                 $base = (float) str_replace(',', '.', $m[1][0]);
                 $unit = mb_strtolower($m[2][0]);
                 $multiplier = $this->unitMultiplier($unit);
@@ -82,39 +85,77 @@ class FinanceNLPNormalizerService
                 $amounts[] = [
                     'raw' => $raw,
                     'value' => $value,
-                    'start' => $m[0][1],
-                    'end' => $m[0][1] + strlen($raw),
+                    'confidence' => 0.95,
+                    'source' => 'multiplier',
+                    'start' => $start,
+                    'end' => $end,
                 ];
+                $consumedSpans[] = [$start, $end];
             }
         }
 
         if (preg_match_all(
-            '/(?:rp\s*)?(\d{1,3}(?:[.,]\d{3})+|\d+)(?!\s*(?:'.$unitPattern.')\b)/ui',
+            '/(?:rp\s*)?(\d{1,3}(?:\.\d{3})+)(?!\s*(?:'.$unitPattern.')\b)/ui',
+            $text,
+            $separatorMatches,
+            PREG_SET_ORDER | PREG_OFFSET_CAPTURE
+        )) {
+            foreach ($separatorMatches as $m) {
+                $raw = trim($m[0][0]);
+                $start = $m[0][1];
+                $end = $start + strlen($raw);
+                if ($this->spanOverlapsConsumed($start, $end, $consumedSpans)) {
+                    continue;
+                }
+                $digits = (int) preg_replace('/\D/', '', $m[1][0]);
+                if ($digits <= 0) {
+                    continue;
+                }
+                $amounts[] = [
+                    'raw' => $raw,
+                    'value' => $digits,
+                    'confidence' => 0.95,
+                    'source' => 'separator',
+                    'start' => $start,
+                    'end' => $end,
+                ];
+                $consumedSpans[] = [$start, $end];
+            }
+        }
+
+        if (preg_match_all(
+            '/(?:rp\s*)?(\d+(?:,\d+)?)(?!\s*(?:'.$unitPattern.')\b)/ui',
             $text,
             $plainMatches,
             PREG_SET_ORDER | PREG_OFFSET_CAPTURE
         )) {
             foreach ($plainMatches as $m) {
                 $raw = trim($m[0][0]);
-                $digits = (int) preg_replace('/\D/', '', $m[1][0]);
+                $start = $m[0][1];
+                $end = $start + strlen($raw);
+                if ($this->spanOverlapsConsumed($start, $end, $consumedSpans)) {
+                    continue;
+                }
+                $numPart = $m[1][0];
+                if (str_contains($numPart, '.')) {
+                    continue;
+                }
+                $digits = (int) preg_replace('/\D/', '', $numPart);
                 if ($digits <= 0) {
                     continue;
                 }
-                $duplicate = false;
-                foreach ($amounts as $existing) {
-                    if ($existing['value'] === $digits) {
-                        $duplicate = true;
-                        break;
-                    }
+                if ($this->isDuplicateValue($amounts, $digits)) {
+                    continue;
                 }
-                if (! $duplicate) {
-                    $amounts[] = [
-                        'raw' => $raw,
-                        'value' => $digits,
-                        'start' => $m[0][1],
-                        'end' => $m[0][1] + strlen($raw),
-                    ];
-                }
+                $amounts[] = [
+                    'raw' => $raw,
+                    'value' => $digits,
+                    'confidence' => 0.7,
+                    'source' => 'plain',
+                    'start' => $start,
+                    'end' => $end,
+                ];
+                $consumedSpans[] = [$start, $end];
             }
         }
 
@@ -124,11 +165,36 @@ class FinanceNLPNormalizerService
     }
 
     /**
-     * @param  array{original: string, normalized_text: string, tokens: list<string>, amount_candidates: list<array{raw: string, value: int, start: int|null, end: int|null}>, hints: list<string>}  $normalized
+     * @param  array{original: string, normalized_text: string, tokens: list<string>, amount_candidates: list<array{raw: string, value: int, confidence: float, source: string, start: int, end: int}>, hints: list<string>}  $normalized
      */
     public function primaryAmount(array $normalized): ?int
     {
-        return $normalized['amount_candidates'][0]['value'] ?? null;
+        $best = $this->bestAmountCandidate($normalized);
+
+        return $best['value'] ?? null;
+    }
+
+    /**
+     * @param  array{original: string, normalized_text: string, tokens: list<string>, amount_candidates: list<array{raw: string, value: int, confidence: float, source: string, start: int, end: int}>, hints: list<string>}  $normalized
+     * @return array{raw: string, value: int, confidence: float, source: string, start: int, end: int}|null
+     */
+    public function bestAmountCandidate(array $normalized): ?array
+    {
+        $candidates = $normalized['amount_candidates'] ?? [];
+        if (empty($candidates)) {
+            return null;
+        }
+
+        usort($candidates, function ($a, $b) {
+            $conf = ($b['confidence'] ?? 0) <=> ($a['confidence'] ?? 0);
+            if ($conf !== 0) {
+                return $conf;
+            }
+
+            return ($a['start'] ?? 0) <=> ($b['start'] ?? 0);
+        });
+
+        return $candidates[0];
     }
 
     public function firstAmount(string $text): ?int
@@ -137,11 +203,40 @@ class FinanceNLPNormalizerService
     }
 
     /**
-     * @param  array{original: string, normalized_text: string, tokens: list<string>, amount_candidates: list<array{raw: string, value: int, start: int|null, end: int|null}>, hints: list<string>}  $normalized
+     * @param  array{original: string, normalized_text: string, tokens: list<string>, amount_candidates: list<array{raw: string, value: int, confidence: float, source: string, start: int, end: int}>, hints: list<string>}  $normalized
+     * @return list<int>
      */
     public function amountValues(array $normalized): array
     {
         return array_map(fn ($c) => $c['value'], $normalized['amount_candidates']);
+    }
+
+    /**
+     * @param  list<array{raw: string, value: int, confidence: float, source: string, start: int, end: int}>  $amounts
+     */
+    private function isDuplicateValue(array $amounts, int $digits): bool
+    {
+        foreach ($amounts as $existing) {
+            if ($existing['value'] === $digits) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<array{int, int}>  $consumedSpans
+     */
+    private function spanOverlapsConsumed(int $start, int $end, array $consumedSpans): bool
+    {
+        foreach ($consumedSpans as [$cStart, $cEnd]) {
+            if ($start < $cEnd && $end > $cStart) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function unitMultiplier(string $unit): int

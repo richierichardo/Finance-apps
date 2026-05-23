@@ -3,9 +3,7 @@
 use App\Models\User;
 use App\Models\Wallet;
 use App\Enums\WalletType;
-use App\Services\AI\FinanceAICommandParserService;
 use App\Services\AI\FinanceAIIntentService;
-use App\Services\AI\FinanceNLPNormalizerService;
 use App\Services\AI\QwenAIClientService;
 use Illuminate\Support\Str;
 
@@ -23,11 +21,10 @@ beforeEach(function () {
         'user_id' => $this->user->id,
         'wallets' => [['id' => 1, 'name' => 'GOPAY', 'balance' => 100000]],
     ];
-    $this->intentService = new FinanceAIIntentService(
-        Mockery::mock(QwenAIClientService::class),
-        new FinanceNLPNormalizerService,
-        app(FinanceAICommandParserService::class),
-    );
+    $this->mock(QwenAIClientService::class, function ($mock) {
+        $mock->shouldNotReceive('chat');
+    });
+    $this->intentService = app(FinanceAIIntentService::class);
 });
 
 test('rule parser detects specific wallet balance intent', function () {

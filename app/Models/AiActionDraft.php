@@ -9,6 +9,8 @@ class AiActionDraft extends Model
 {
     public const STATUS_PENDING = 'pending';
 
+    public const STATUS_COLLECTING = 'collecting';
+
     public const STATUS_CONFIRMED = 'confirmed';
 
     public const STATUS_CANCELLED = 'cancelled';
@@ -56,6 +58,11 @@ class AiActionDraft extends Model
     public function isPending(): bool
     {
         return $this->status === self::STATUS_PENDING;
+    }
+
+    public function isCollecting(): bool
+    {
+        return $this->status === self::STATUS_COLLECTING;
     }
 
     public function isExpired(): bool

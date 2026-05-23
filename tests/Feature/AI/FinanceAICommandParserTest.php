@@ -133,6 +133,117 @@ test('create wallet cash uang dompet', function () {
         ->and($result['confidence'])->toBeGreaterThanOrEqual(0.9);
 });
 
+test('create wallet e-wallet nama gopay saldo 348.455', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'buat wallet e-wallet nama gopay saldo 348.455',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_wallet')
+        ->and($result['action_type'])->toBe('create_wallet')
+        ->and($result['entities']['wallet_name'])->toBe('gopay')
+        ->and($result['entities']['wallet_type'])->toBe('ewallet')
+        ->and($result['entities']['initial_balance'])->toBe(348455)
+        ->and($result['missing_fields'])->toBeEmpty()
+        ->and($result['confidence'])->toBeGreaterThanOrEqual(0.85);
+});
+
+test('create wallet gopay 348.455 missing wallet_type only', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'buat wallet gopay 348.455',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_wallet')
+        ->and($result['entities']['wallet_name'])->toBe('GOPAY')
+        ->and($result['entities']['initial_balance'])->toBe(348455)
+        ->and($result['missing_fields'])->toBe(['wallet_type'])
+        ->and($result['clarifying_question'])->toContain('Tipe wallet');
+});
+
+test('create wallet ewallet nama shopeepay saldo 10.861', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'buat wallet ewallet nama shopeepay saldo 10.861',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_wallet')
+        ->and($result['entities']['wallet_name'])->toBe('shopeepay')
+        ->and($result['entities']['wallet_type'])->toBe('ewallet')
+        ->and($result['entities']['initial_balance'])->toBe(10861)
+        ->and($result['missing_fields'])->toBeEmpty();
+});
+
+test('create wallet cash nama uang dompet saldo 50 ribu', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'buat wallet cash nama uang dompet saldo 50 ribu',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_wallet')
+        ->and($result['entities']['wallet_name'])->toBe('uang dompet')
+        ->and($result['entities']['wallet_type'])->toBe('cash')
+        ->and($result['entities']['initial_balance'])->toBe(50000)
+        ->and($result['missing_fields'])->toBeEmpty();
+});
+
+test('buat rekening BCA saldo awal 1 juta', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'buat rekening BCA saldo awal 1 juta',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_wallet')
+        ->and($result['entities']['wallet_name'])->toBe('BCA')
+        ->and($result['entities']['wallet_type'])->toBe('bank')
+        ->and($result['entities']['initial_balance'])->toBe(1000000)
+        ->and($result['missing_fields'])->toBeEmpty();
+});
+
+test('tambah ewallet dana 200 ribu', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'tambah ewallet dana 200 ribu',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_wallet')
+        ->and($result['entities']['wallet_name'])->toBe('DANA')
+        ->and($result['entities']['wallet_type'])->toBe('ewallet')
+        ->and($result['entities']['initial_balance'])->toBe(200000)
+        ->and($result['missing_fields'])->toBeEmpty();
+});
+
+test('set budget kategori belanja 1 jt setiap bulan', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'set budget kategori belanja 1 jt setiap bulan',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_budget')
+        ->and($result['entities']['amount'])->toBe(1000000)
+        ->and($result['missing_fields'])->toBeEmpty();
+});
+
+test('set budget buat kategori investasi 1jt', function () {
+    $result = $this->parser->parse(
+        $this->user->id,
+        'set budget buat kategori investasi 1jt setiap bulan',
+        $this->context
+    );
+
+    expect($result['intent'])->toBe('parse_budget')
+        ->and($result['entities']['category_name'])->toBe('investasi')
+        ->and($result['entities']['amount'])->toBe(1000000)
+        ->and($result['missing_fields'])->not->toContain('category_name');
+});
+
 test('budget makan 1.5 juta', function () {
     $result = $this->parser->parse(
         $this->user->id,

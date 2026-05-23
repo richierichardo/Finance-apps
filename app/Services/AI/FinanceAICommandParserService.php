@@ -10,9 +10,20 @@ class FinanceAICommandParserService
 
     private const PARTIAL_CONFIDENCE = 0.75;
 
+    /** @var list<string> */
+    private const EWALLET_BRANDS = [
+        'gopay', 'shopeepay', 'ovo', 'dana', 'linkaja', 'shoppepay',
+    ];
+
+    /** @var list<string> */
+    private const BANK_BRANDS = [
+        'bca', 'mandiri', 'bri', 'bni', 'cimb', 'jago', 'seabank',
+    ];
+
     public function __construct(
         protected FinanceNLPNormalizerService $normalizer,
         protected FinanceEntityResolverService $resolver,
+        protected FinanceAIClarificationService $clarificationService,
     ) {}
 
     /**
@@ -219,33 +230,13 @@ class FinanceAICommandParserService
      */
     private function parseWallet(int $userId, string $text, array $context, array $normalized): ?array
     {
-        $isCreate = preg_match(
-            '/\b(buat|tambah|create)\b.*\b(wallet|dompet|rekening|ewallet|e-wallet)\b/u',
-            $text
-        ) || preg_match('/\b(wallet|dompet|rekening)\s+baru\b/u', $text);
-
-        if (! $isCreate) {
+        if (! $this->matchesWalletCreateIntent($text)) {
             return null;
         }
 
-        $walletName = null;
-        $walletType = null;
-        $initialBalance = $this->normalizer->primaryAmount($normalized) ?? 0;
-
-        if (preg_match('/\bnama(?:nya)?\s+([a-z0-9\s]+?)(?:,|\s+saldo|\s+type|\s+tipe|\s+\d|$)/u', $text, $m)) {
-            $walletName = trim($m[1]);
-        } elseif (preg_match('/\b(?:ewallet|e-wallet)\s+([a-z0-9]+)/u', $text, $m)) {
-            $walletName = strtoupper(trim($m[1]));
-            $walletType = WalletType::Ewallet->value;
-        } elseif (preg_match('/\b(?:rekening|bank)\s+([a-z0-9]+)/u', $text, $m)) {
-            $walletName = strtoupper(trim($m[1]));
-            $walletType = WalletType::Bank->value;
-        }
-
-        if (preg_match('/\btype\s+([a-z\-]+)/u', $text, $m) || preg_match('/\btipe\s+([a-z\-]+)/u', $text, $m)) {
-            $walletType = $this->resolver->normalizeWalletType(trim($m[1]));
-        }
-        $walletType ??= $this->resolver->normalizeWalletType($text);
+        $walletType = $this->extractWalletType($text);
+        $walletName = $this->extractWalletName($text, $walletType);
+        $initialBalance = $this->extractWalletBalance($text, $normalized, $walletName, $walletType);
 
         $missing = [];
         if (! $walletName) {
@@ -254,11 +245,14 @@ class FinanceAICommandParserService
         if (! $walletType) {
             $missing[] = 'wallet_type';
         }
+        if ($initialBalance === null && $this->expectsBalanceInput($text)) {
+            $missing[] = 'initial_balance';
+        }
 
         $entities = [
             'wallet_name' => $walletName,
             'wallet_type' => $walletType,
-            'initial_balance' => $initialBalance,
+            'initial_balance' => $initialBalance ?? 0,
         ];
 
         if (empty($missing)) {
@@ -283,9 +277,166 @@ class FinanceAICommandParserService
             'action_type' => 'create_wallet',
             'entities' => $entities,
             'missing_fields' => $missing,
-            'clarifying_question' => 'Sebutkan nama dan tipe wallet. Contoh: buat wallet cash nama uang dompet saldo 50 ribu.',
+            'clarifying_question' => $this->clarificationService->buildWalletClarifyingQuestion($missing, $entities),
             'debug' => ['matched_pattern' => 'wallet_create_partial'],
         ];
+    }
+
+    private function matchesWalletCreateIntent(string $text): bool
+    {
+        if (preg_match('/\bcreate\s+wallet\b/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\b(wallet|dompet|rekening)\s+baru\b/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\b(dompet|rekening)\s+baru\b/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\b(buat|tambah|create)\b/u', $text)
+            && preg_match('/\b(wallet|dompet|rekening|ewallet|e-wallet|e wallet)\b/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\b(buat|tambah)\b/u', $text)
+            && preg_match('/\b(dompet|rekening)\b/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\btambah\s+(?:ewallet|e-wallet|e wallet)\b/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\bbuat\s+(?:dompet\s+)?tunai\b/u', $text)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function extractWalletType(string $text): ?string
+    {
+        if (preg_match('/\b(?:type|tipe)\s+([a-z0-9\-\s]+?)(?:,|\s+dengan|\s+nama|\s+saldo|\s+\d|$)/u', $text, $m)) {
+            $type = $this->resolver->detectExplicitWalletType(trim($m[1]))
+                ?? $this->resolver->normalizeWalletType(trim($m[1]));
+            if ($type) {
+                return $type;
+            }
+        }
+
+        $explicit = $this->resolver->detectExplicitWalletType($text);
+        if ($explicit !== null) {
+            return $explicit;
+        }
+
+        if (preg_match('/\b(?:buat|tambah)\s+rekening\b/u', $text)) {
+            return WalletType::Bank->value;
+        }
+
+        foreach (self::BANK_BRANDS as $brand) {
+            if (preg_match('/\b(?:rekening|bank)\s+'.preg_quote($brand, '/').'\b/u', $text)) {
+                return WalletType::Bank->value;
+            }
+        }
+
+        return null;
+    }
+
+    private function extractWalletName(string $text, ?string $walletType): ?string
+    {
+        if (preg_match('/\bnama(?:nya)?\s+([a-z0-9\s]+?)(?:,|\s+saldo|\s+type|\s+tipe|\s+dengan|\s+\d|$)/u', $text, $m)) {
+            $name = trim($m[1]);
+            if ($name !== '' && ! $this->isWalletTypeKeyword($name)) {
+                return $name;
+            }
+        }
+
+        if (preg_match('/\b(?:rekening|bank)\s+([a-z0-9]+)(?:\s+saldo|\s|$)/u', $text, $m)) {
+            $candidate = trim($m[1]);
+            if (! $this->isWalletTypeKeyword($candidate)) {
+                return strtoupper($candidate);
+            }
+        }
+
+        if (preg_match('/\b(?:ewallet|e-wallet|e wallet)\s+(?:nama\s+)?([a-z0-9]+)/u', $text, $m)) {
+            $candidate = trim($m[1]);
+            if ($candidate !== 'nama' && ! $this->isWalletTypeKeyword($candidate)) {
+                return strtolower($candidate) === $candidate ? strtoupper($candidate) : $candidate;
+            }
+        }
+
+        if (preg_match('/\b(?:buat|tambah)\s+(?:wallet\s+)?([a-z0-9]+)\s+\d/u', $text, $m)) {
+            $candidate = trim($m[1]);
+            if (! $this->isWalletTypeKeyword($candidate) && ! in_array($candidate, ['wallet', 'dompet', 'rekening', 'baru'], true)) {
+                foreach (self::EWALLET_BRANDS as $brand) {
+                    if ($candidate === $brand) {
+                        return strtoupper($candidate);
+                    }
+                }
+            }
+        }
+
+        if (preg_match('/\b(?:buat|tambah)\s+wallet\s+([a-z0-9]+)\s+\d/u', $text, $m)) {
+            $candidate = trim($m[1]);
+            if (! $this->isWalletTypeKeyword($candidate)) {
+                foreach (self::EWALLET_BRANDS as $brand) {
+                    if ($candidate === $brand) {
+                        return strtoupper($candidate);
+                    }
+                }
+            }
+        }
+
+        foreach (self::EWALLET_BRANDS as $brand) {
+            if (preg_match('/\b'.preg_quote($brand, '/').'\b/u', $text)) {
+                return strtoupper($brand);
+            }
+        }
+
+        foreach (self::BANK_BRANDS as $brand) {
+            if (preg_match('/\b'.preg_quote($brand, '/').'\b/u', $text)) {
+                return strtoupper($brand);
+            }
+        }
+
+        if (preg_match('/\bbuat\s+dompet\s+tunai\b/u', $text) || preg_match('/\bdompet\s+tunai\b/u', $text)) {
+            return 'uang tunai';
+        }
+
+        if ($walletType === WalletType::Cash->value && preg_match('/\bcash\s+nama\s+([a-z0-9\s]+)/u', $text, $m)) {
+            return trim($m[1]);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $normalized
+     */
+    private function extractWalletBalance(string $text, array $normalized, ?string $walletName, ?string $walletType): ?int
+    {
+        $amount = $this->normalizer->primaryAmount($normalized);
+        if ($amount !== null) {
+            return $amount;
+        }
+
+        if ($walletName && $walletType && ! $this->expectsBalanceInput($text)) {
+            return 0;
+        }
+
+        return null;
+    }
+
+    private function expectsBalanceInput(string $text): bool
+    {
+        return (bool) preg_match('/\b(saldo|saldo\s+awal|isi|isinya)\b/u', $text);
+    }
+
+    private function isWalletTypeKeyword(string $word): bool
+    {
+        $w = mb_strtolower(trim($word));
+
+        return in_array($w, [
+            'cash', 'tunai', 'bank', 'rekening', 'ewallet', 'e-wallet', 'e', 'wallet',
+            'dompet', 'baru', 'type', 'tipe', 'nama', 'dengan',
+        ], true);
     }
 
     /**
@@ -303,21 +454,27 @@ class FinanceAICommandParserService
         if (! $hasCreateMarker && ! $amount) {
             return null;
         }
-        $category = $this->resolver->findCategoryMention($userId, $text);
+
+        $categoryRaw = $this->resolver->extractCategoryNameFromText($text);
+        $category = $categoryRaw ? $this->resolver->resolveCategory($userId, $categoryRaw) : null;
+        $period = 'monthly';
+        if (preg_match('/\b(setiap\s+bulan|bulan\s+ini|monthly)\b/u', $text)) {
+            $period = 'monthly';
+        }
 
         $missing = [];
         if (! $amount) {
             $missing[] = 'amount';
         }
-        if (! $category) {
+        if (! $categoryRaw) {
             $missing[] = 'category_name';
         }
 
         $entities = [
             'amount' => $amount,
-            'category_name' => $category['name'] ?? null,
+            'category_name' => $category['name'] ?? $categoryRaw,
             'category_id' => $category['id'] ?? null,
-            'period' => 'monthly',
+            'period' => $period,
         ];
 
         if (empty($missing)) {

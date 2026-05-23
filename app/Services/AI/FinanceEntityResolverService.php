@@ -170,16 +170,32 @@ class FinanceEntityResolverService
      */
     public function findCategoryMention(int $userId, string $text): ?array
     {
-        if (preg_match('/\b(?:budget|anggaran|batas(?:in)?)\s+([a-z]+)/u', $text, $m)) {
-            return $this->resolveCategory($userId, trim($m[1]));
+        $rawName = $this->extractCategoryNameFromText($text);
+        if ($rawName === null) {
+            return null;
         }
 
-        if (preg_match('/\b(?:budget|anggaran|batas(?:in)?)\s+(?:untuk\s+)?([a-z0-9\s]+?)(?:\s+\d|\s+bulan|\s+monthly|$)/u', $text, $m)) {
-            return $this->resolveCategory($userId, trim($m[1]));
-        }
+        return $this->resolveCategory($userId, $rawName);
+    }
 
-        if (preg_match('/\b(?:untuk|kategori)\s+([a-z0-9\s]+)/u', $text, $m)) {
-            return $this->resolveCategory($userId, trim($m[1]));
+    public function extractCategoryNameFromText(string $text): ?string
+    {
+        $patterns = [
+            '/\bset\s+budget\s+(?:buat\s+)?kategori\s+([a-z0-9]+)/u',
+            '/\bbuat\s+kategori\s+([a-z0-9]+)/u',
+            '/\b(?:category|kategori)\s+([a-z0-9]+)/u',
+            '/\b(?:budget|anggaran|batas(?:in)?)\s+([a-z0-9]+)/u',
+            '/\b(?:budget|anggaran|batas(?:in)?)\s+(?:untuk\s+)?([a-z0-9]+?)(?:\s+\d|\s+jt|\s+juta|\s+ribu|\s+setiap|\s+bulan|\s+monthly|$)/u',
+            '/\b(?:untuk|kategori)\s+([a-z0-9]+?)(?:\s+\d|\s+jt|\s+juta|\s+ribu|\s+setiap|\s+bulan|$)/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text, $m)) {
+                $name = trim($m[1]);
+                if ($name !== '' && ! in_array($name, ['budget', 'anggaran', 'set', 'buat', 'category', 'kategori'], true)) {
+                    return $name;
+                }
+            }
         }
 
         return null;
@@ -187,16 +203,35 @@ class FinanceEntityResolverService
 
     public function normalizeWalletType(string $text): ?string
     {
+        $explicit = $this->detectExplicitWalletType($text);
+        if ($explicit !== null) {
+            return $explicit;
+        }
+
+        $key = mb_strtolower(trim($text));
+
+        if (preg_match('/\b(gopay|shopeepay|ovo|dana|linkaja)\b/u', $key)) {
+            return WalletType::Ewallet->value;
+        }
+
+        return null;
+    }
+
+    /**
+     * Detect wallet type from explicit type keywords only (not e-wallet brand names).
+     */
+    public function detectExplicitWalletType(string $text): ?string
+    {
         $key = mb_strtolower(trim($text));
 
         if (preg_match('/\b(cash|tunai|uang\s*tunai|dompet\s*fisik|uang\s*cash)\b/u', $key)) {
             return WalletType::Cash->value;
         }
-        if (preg_match('/\b(bank|rekening|bca|mandiri|bri|bni|cimb|jago|seabank)\b/u', $key)) {
-            return WalletType::Bank->value;
-        }
-        if (preg_match('/\b(gopay|shopeepay|ovo|dana|linkaja|ewallet|e-wallet|e wallet)\b/u', $key)) {
+        if (preg_match('/\b(?:e-wallet|e wallet|ewallet)\b/u', $key)) {
             return WalletType::Ewallet->value;
+        }
+        if (preg_match('/\b(bank|rekening)\b/u', $key)) {
+            return WalletType::Bank->value;
         }
 
         return match ($key) {

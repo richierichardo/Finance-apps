@@ -24,3 +24,23 @@ test('normalizes transfer typos', function () {
 
     expect($result['normalized_text'])->toContain('transfer');
 });
+
+test('50 ribu does not produce spurious low amount candidates', function () {
+    $result = $this->normalizer->normalize('buat wallet cash nama uang dompet saldo 50 ribu');
+
+    expect($this->normalizer->amountValues($result))->toBe([50000])
+        ->and($this->normalizer->primaryAmount($result))->toBe(50000);
+});
+
+test('indonesian thousand separator 348.455', function () {
+    expect($this->normalizer->firstAmount('saldo 348.455'))->toBe(348455)
+        ->and($this->normalizer->firstAmount('saldo 10.861'))->toBe(10861);
+});
+
+test('amount candidates include confidence and source', function () {
+    $result = $this->normalizer->normalize('50 ribu');
+
+    expect($result['amount_candidates'][0])->toHaveKeys(['raw', 'value', 'confidence', 'source'])
+        ->and($result['amount_candidates'][0]['source'])->toBe('multiplier')
+        ->and($result['amount_candidates'][0]['value'])->toBe(50000);
+});

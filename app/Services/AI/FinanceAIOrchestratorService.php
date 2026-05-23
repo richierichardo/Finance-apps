@@ -23,6 +23,14 @@ class FinanceAIOrchestratorService
         'help',
     ];
 
+    private const SLOT_FILL_ACTIONS = [
+    'create_wallet',
+    'create_transfer',
+    'create_transaction',
+    'create_budget',
+    'create_recurring',
+  ];
+
     public function __construct(
         protected QwenAIClientService $qwenClient,
         protected FinanceAIContextService $contextService,
@@ -32,6 +40,8 @@ class FinanceAIOrchestratorService
         protected FinanceNLPNormalizerService $normalizer,
         protected AITokenUsageService $tokenUsageService,
         protected FinanceAICommandParserService $commandParser,
+        protected FinanceAIClarificationService $clarificationService,
+        protected FinanceEntityResolverService $entityResolver,
     ) {}
 
     /**
@@ -71,51 +81,36 @@ class FinanceAIOrchestratorService
 
         $context = $this->contextService->buildDashboardContext($userId, $periodKey);
 
-        Log::info('ai.normalized', [
-            'original' => $message,
-            'normalized_text' => $normalized['normalized_text'] ?? null,
-            'amount_candidates' => $this->normalizer->amountValues($normalized),
-        ]);
+        if (! empty($channelContext['only_slot_fill'])) {
+            $slotFillResult = $this->trySlotFillFromCollectingDraft(
+                $userId,
+                $channel,
+                $channelContext,
+                $conversation,
+                $message,
+                $normalized,
+                $periodKey
+            );
 
-        $commandParse = $this->commandParser->parse($userId, $message, $context);
-
-        Log::info('ai.command_parse', [
-            'matched' => $commandParse['matched'] ?? false,
-            'intent' => $commandParse['intent'] ?? null,
-            'confidence' => $commandParse['confidence'] ?? null,
-            'entities' => $commandParse['entities'] ?? [],
-            'missing_fields' => $commandParse['missing_fields'] ?? [],
-            'model_called' => false,
-        ]);
-
-        $useCommandOnly = ($commandParse['matched'] ?? false)
-            && ($commandParse['confidence'] ?? 0) >= 0.85
-            && empty($commandParse['missing_fields']);
-
-        $useCommandClarification = ($commandParse['matched'] ?? false)
-            && ($commandParse['confidence'] ?? 0) >= 0.7
-            && ! empty($commandParse['missing_fields']);
-
-        if ($useCommandOnly || $useCommandClarification) {
-            $intent = $this->commandResultToIntent($commandParse);
-        } else {
-            $parseOptions = [
-                'qwen_options' => array_merge(
-                    $this->defaultQwenOptions($channel, forIntent: true),
-                    $channelContext['qwen_options'] ?? []
-                ),
-            ];
-            $intent = $this->intentService->parse($userId, $message, $context, $parseOptions);
+            return $slotFillResult ?? $this->error('Tidak ada draft yang sedang dilengkapi.');
         }
 
-        Log::info('ai.rule_parse_result', [
-            'intent' => $intent['intent'] ?? null,
-            'confidence' => $intent['confidence'] ?? null,
-            'entities' => $intent['entities'] ?? [],
-            'missing_fields' => $intent['missing_fields'] ?? [],
-            'model_called' => $intent['model_called'] ?? false,
-            'source' => $intent['source'] ?? null,
-        ]);
+        if (empty($channelContext['skip_collecting_draft'])) {
+            $slotFillResult = $this->trySlotFillFromCollectingDraft(
+                $userId,
+                $channel,
+                $channelContext,
+                $conversation,
+                $message,
+                $normalized,
+                $periodKey
+            );
+            if ($slotFillResult !== null) {
+                return $slotFillResult;
+            }
+        }
+
+        $intent = $this->resolveIntent($userId, $message, $normalized, $context, $channel, $channelContext);
 
         if (($intent['intent'] ?? '') === 'out_of_scope') {
             return $this->guardrailBlockedResponse($conversation, $userId, $channel, $message, $periodKey, [
@@ -130,7 +125,7 @@ class FinanceAIOrchestratorService
         }
 
         if (($intent['intent'] ?? '') === 'cancel') {
-            return $this->handleCancel($userId, $channel, $conversation, $message, $periodKey);
+            return $this->handleCancel($userId, $channel, $conversation, $message, $periodKey, $channelContext);
         }
 
         $intentValidation = $this->guardrailService->validateIntent($intent);
@@ -152,16 +147,38 @@ class FinanceAIOrchestratorService
             return $this->answerAndLog($conversation, $userId, $channel, $message, $edu, $intent, $flags, $periodKey, 'blocked');
         }
 
-        if (! empty($intent['missing_fields']) && ! empty($intent['clarifying_question'])) {
-            $this->logTraining($userId, $channel, $message, $periodKey, $intent, null, null, null);
+        if (! empty($intent['missing_fields'])) {
+            $clarification = $intent['clarifying_question']
+                ?? $this->clarificationService->buildFieldSpecificClarification(
+                    $intent['action_type'] ?? '',
+                    $intent['missing_fields'],
+                    $intent['entities'] ?? []
+                );
 
-            return [
-                'ok' => true,
-                'type' => 'clarification',
-                'message' => $intent['clarifying_question'],
-                'structured' => $intent,
-                'draft_id' => null,
-            ];
+            if (($intent['requires_action'] ?? false) && in_array($intent['action_type'] ?? '', self::SLOT_FILL_ACTIONS, true)) {
+                return $this->handleCollectingDraft(
+                    $userId,
+                    $channel,
+                    $channelContext,
+                    $conversation,
+                    $message,
+                    $intent,
+                    $periodKey,
+                    $clarification
+                );
+            }
+
+            if ($clarification) {
+                $this->logTraining($userId, $channel, $message, $periodKey, $intent, null, null, null);
+
+                return [
+                    'ok' => true,
+                    'type' => 'clarification',
+                    'message' => $clarification,
+                    'structured' => $intent,
+                    'draft_id' => null,
+                ];
+            }
         }
 
         if (($intent['requires_action'] ?? false) && ! empty($intent['action_type'])) {
@@ -472,13 +489,19 @@ class FinanceAIOrchestratorService
         AiConversation $conversation,
         string $message,
         string $periodKey,
+        array $channelContext = [],
     ): array {
-        $draft = AiActionDraft::query()
+        $query = AiActionDraft::query()
             ->where('user_id', $userId)
             ->where('channel', $channel)
-            ->where('status', AiActionDraft::STATUS_PENDING)
-            ->latest()
-            ->first();
+            ->whereIn('status', [AiActionDraft::STATUS_PENDING, AiActionDraft::STATUS_COLLECTING])
+            ->where('expires_at', '>', now());
+
+        if ($channel === 'telegram' && ! empty($channelContext['telegram_chat_id'])) {
+            $query->where('telegram_chat_id', $channelContext['telegram_chat_id']);
+        }
+
+        $draft = $query->latest()->first();
 
         if (! $draft) {
             return [
@@ -501,7 +524,7 @@ class FinanceAIOrchestratorService
     {
         $entities = $intent['entities'] ?? [];
         $actionType = $intent['action_type'];
-        $source = $channel === 'telegram' ? 'telegram_ai' : 'web';
+        $source = $channel === 'telegram' ? 'telegram_ai' : 'web_ai';
 
         if ($actionType === 'create_transaction') {
             $walletId = $this->contextService->resolveWalletId($userId, $entities['wallet_name'] ?? null, $context);
@@ -556,9 +579,12 @@ class FinanceAIOrchestratorService
         }
 
         if ($actionType === 'create_budget') {
-            $categoryId = $this->contextService->resolveCategoryId($entities['category_name'] ?? null);
+            $categoryName = $entities['category_name'] ?? null;
+            $categoryId = $this->contextService->resolveCategoryId($categoryName);
             if (! $categoryId) {
-                return ['error' => 'Kategori tidak ditemukan.'];
+                $label = $categoryName ? "'{$categoryName}'" : 'itu';
+
+                return ['error' => "Kategori {$label} belum ada. Mau pakai kategori lain atau buat kategori baru di aplikasi web?"];
             }
 
             return [
@@ -591,11 +617,18 @@ class FinanceAIOrchestratorService
         }
 
         if ($actionType === 'create_wallet') {
-            $name = trim((string) ($entities['wallet_name'] ?? ''));
-            $type = $entities['wallet_type'] ?? null;
+            $normalized = $this->clarificationService->normalizeWalletEntities($entities);
+            $name = trim((string) ($normalized['wallet_name'] ?? ''));
+            $type = $normalized['wallet_type'] ?? null;
+            $missing = array_values(array_filter([
+                $name === '' ? 'wallet_name' : null,
+                ! $type ? 'wallet_type' : null,
+            ]));
 
-            if ($name === '' || ! $type) {
-                return ['error' => 'Nama dan tipe wallet wajib diisi.'];
+            if (! empty($missing)) {
+                return [
+                    'error' => $this->clarificationService->buildWalletClarifyingQuestion($missing, $normalized),
+                ];
             }
 
             $exists = Wallet::belongsToUser($userId)
@@ -609,7 +642,7 @@ class FinanceAIOrchestratorService
             return [
                 'name' => $name,
                 'type' => $type,
-                'initial_balance' => (float) ($entities['initial_balance'] ?? 0),
+                'initial_balance' => (float) ($normalized['initial_balance'] ?? $entities['initial_balance'] ?? 0),
                 'source' => $source,
             ];
         }
@@ -1020,19 +1053,383 @@ class FinanceAIOrchestratorService
             return false;
         }
 
+        if ($this->isBudgetTrackingContext($message)) {
+            return false;
+        }
+
         return $this->isInvestmentQuestion($message);
     }
 
     private function isInvestmentQuestion(string $message): bool
     {
-        if (preg_match('/\b(rekomendasi|investasi|portfolio)\b/ui', $message)) {
+        if ($this->isBudgetTrackingContext($message)) {
+            return false;
+        }
+
+        if (preg_match('/\b(rekomendasi|recommend)\b.*\b(beli|buy|jual|sell|saham|stock|crypto)\b/ui', $message)) {
             return true;
         }
 
         return (bool) preg_match(
             '/\b(beli|buy|jual|sell)\b.*\b(saham|stock|crypto|bitcoin|btc|eth|reksadana)\b/ui',
             $message
-        ) || (bool) preg_match('/\b(saham|stock|crypto|bitcoin)\b/ui', $message);
+        ) || (bool) preg_match(
+            '/\b(saham|stock|crypto|bitcoin)\b.*\b(beli|buy|jual|sell|sekarang)\b/ui',
+            $message
+        );
+    }
+
+    private function isBudgetTrackingContext(string $message): bool
+    {
+        return (bool) preg_match('/\b(budget|anggaran|set\s+budget)\b/ui', $message)
+            && (bool) preg_match('/\b(kategori|category)\b/ui', $message);
+    }
+
+    /**
+     * @param  array<string, mixed>  $normalized
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $channelContext
+     * @return array<string, mixed>
+     */
+    private function resolveIntent(
+        int $userId,
+        string $message,
+        array $normalized,
+        array $context,
+        string $channel,
+        array $channelContext,
+    ): array {
+        $commandParse = $this->commandParser->parse($userId, $message, $context);
+        $aiFallbackCalled = false;
+        $intent = null;
+
+        $rulesComplete = ($commandParse['matched'] ?? false)
+            && ($commandParse['confidence'] ?? 0) >= 0.85
+            && empty($commandParse['missing_fields']);
+
+        $rulesPartialResolved = ($commandParse['matched'] ?? false)
+            && ($commandParse['confidence'] ?? 0) >= 0.65
+            && ! empty($commandParse['missing_fields'])
+            && ! empty($commandParse['clarifying_question'])
+            && $this->rulesParseHasUsefulEntities($commandParse);
+
+        if ($rulesComplete) {
+            $intent = $this->commandResultToIntent($commandParse);
+        } elseif ($rulesPartialResolved) {
+            $intent = $this->commandResultToIntent($commandParse);
+        } else {
+            $needsAi = ! ($commandParse['matched'] ?? false)
+                || (
+                    ($commandParse['confidence'] ?? 0) >= 0.65
+                    && ! empty($commandParse['missing_fields'])
+                )
+                || (($commandParse['matched'] ?? false) && ($commandParse['confidence'] ?? 0) < 0.85);
+
+            if ($needsAi) {
+                $aiFallbackCalled = true;
+                $parseOptions = [
+                    'qwen_options' => array_merge(
+                        $this->defaultQwenOptions($channel, forIntent: true),
+                        $channelContext['qwen_options'] ?? []
+                    ),
+                ];
+                $intent = $this->intentService->parseWithFallback(
+                    $userId,
+                    $message,
+                    $normalized,
+                    $commandParse,
+                    $context,
+                    $parseOptions
+                );
+            } else {
+                $intent = $this->commandResultToIntent($commandParse);
+            }
+        }
+
+        if ($intent === null) {
+            $intent = $this->commandResultToIntent($commandParse);
+        }
+
+        if (! empty($intent['missing_fields']) && empty($intent['clarifying_question'])) {
+            $intent['clarifying_question'] = $this->clarificationService->buildFieldSpecificClarification(
+                $intent['action_type'] ?? '',
+                $intent['missing_fields'],
+                $intent['entities'] ?? []
+            ) ?? $this->clarificationService->buildGenericExample($intent['action_type'] ?? '');
+        }
+
+        Log::info('ai.parser.chain', [
+            'channel' => $channel,
+            'original' => $message,
+            'normalized_text' => $normalized['normalized_text'] ?? null,
+            'rules_matched' => $commandParse['matched'] ?? null,
+            'rules_intent' => $commandParse['intent'] ?? null,
+            'rules_confidence' => $commandParse['confidence'] ?? null,
+            'rules_entities' => $commandParse['entities'] ?? [],
+            'rules_missing_fields' => $commandParse['missing_fields'] ?? [],
+            'ai_fallback_called' => $aiFallbackCalled,
+            'final_intent' => $intent['intent'] ?? null,
+            'final_entities' => $intent['entities'] ?? [],
+            'final_missing_fields' => $intent['missing_fields'] ?? [],
+        ]);
+
+        return $intent;
+    }
+
+    /**
+     * @param  array<string, mixed>  $normalized
+     * @param  array<string, mixed>  $channelContext
+     * @return array<string, mixed>|null
+     */
+    private function trySlotFillFromCollectingDraft(
+        int $userId,
+        string $channel,
+        array $channelContext,
+        AiConversation $conversation,
+        string $message,
+        array $normalized,
+        string $periodKey,
+    ): ?array {
+        $draft = $this->findCollectingDraft($userId, $channel, $channelContext);
+        if (! $draft) {
+            return null;
+        }
+
+        if (preg_match('/^(yes|ya|y|confirm|ok|setuju|cancel|batal|no|tidak)$/u', trim($message))) {
+            return null;
+        }
+
+        $payload = $draft->payload ?? [];
+        $missing = $payload['missing_fields'] ?? [];
+        $entities = $payload['partial_entities'] ?? [];
+        $actionType = $draft->action_type;
+
+        $filled = $this->fillSlotsFromMessage($userId, $message, $normalized, $missing, $entities, $actionType);
+        $stillMissing = $filled['missing_fields'];
+        $mergedEntities = $filled['entities'];
+
+        if (! empty($stillMissing)) {
+            $clarification = $this->clarificationService->buildFieldSpecificClarification(
+                $actionType,
+                $stillMissing,
+                $mergedEntities
+            ) ?? 'Mohon lengkapi informasi yang diminta.';
+
+            $draft->update([
+                'payload' => array_merge($payload, [
+                    'partial_entities' => $mergedEntities,
+                    'missing_fields' => $stillMissing,
+                ]),
+            ]);
+
+            return [
+                'ok' => true,
+                'type' => 'clarification',
+                'message' => $clarification,
+                'structured' => [
+                    'intent' => 'slot_fill',
+                    'action_type' => $actionType,
+                    'entities' => $mergedEntities,
+                    'missing_fields' => $stillMissing,
+                ],
+                'draft_id' => $draft->id,
+            ];
+        }
+
+        $intent = [
+            'intent' => match ($actionType) {
+                'create_wallet' => 'parse_wallet',
+                'create_transfer' => 'parse_transfer',
+                'create_transaction' => 'parse_transaction',
+                'create_budget' => 'parse_budget',
+                'create_recurring' => 'parse_recurring',
+                default => 'unknown',
+            },
+            'confidence' => 0.95,
+            'requires_action' => true,
+            'action_type' => $actionType,
+            'entities' => $mergedEntities,
+            'missing_fields' => [],
+            'clarifying_question' => null,
+            'source' => 'slot_fill',
+        ];
+
+        $draft->update(['status' => AiActionDraft::STATUS_CANCELLED]);
+
+        return $this->handleWriteIntent($userId, $channel, $channelContext, $conversation, $message, $intent, $periodKey);
+    }
+
+    /**
+     * @param  list<string>  $missing
+     * @param  array<string, mixed>  $entities
+     * @return array{entities: array<string, mixed>, missing_fields: list<string>}
+     */
+    private function fillSlotsFromMessage(
+        int $userId,
+        string $message,
+        array $normalized,
+        array $missing,
+        array $entities,
+        string $actionType,
+    ): array {
+        $text = $normalized['normalized_text'] ?? mb_strtolower(trim($message));
+
+        if ($actionType === 'create_wallet') {
+            if (in_array('wallet_type', $missing, true)) {
+                $type = $this->entityResolver->normalizeWalletType($text)
+                    ?? $this->clarificationService->normalizeWalletTypeValue($text);
+                if ($type) {
+                    $entities['wallet_type'] = $type;
+                }
+            }
+            if (in_array('wallet_name', $missing, true) && trim($message) !== '') {
+                $entities['wallet_name'] = trim($message);
+            }
+            if (in_array('initial_balance', $missing, true)) {
+                $amount = $this->normalizer->primaryAmount($normalized);
+                if ($amount !== null) {
+                    $entities['initial_balance'] = $amount;
+                }
+            }
+            $entities = $this->clarificationService->normalizeWalletEntities($entities);
+            $stillMissing = array_values(array_filter([
+                empty($entities['wallet_name']) ? 'wallet_name' : null,
+                empty($entities['wallet_type']) ? 'wallet_type' : null,
+            ]));
+
+            return ['entities' => $entities, 'missing_fields' => $stillMissing];
+        }
+
+        if ($actionType === 'create_budget') {
+            if (in_array('category_name', $missing, true)) {
+                $rawName = trim($message);
+                $category = $this->entityResolver->resolveCategory($userId, $rawName);
+                if ($category) {
+                    $entities['category_name'] = $category['name'];
+                    $entities['category_id'] = $category['id'];
+                } elseif ($rawName !== '' && ! preg_match('/^\//u', $rawName)) {
+                    $entities['category_name'] = $rawName;
+                }
+            }
+            if (in_array('amount', $missing, true)) {
+                $amount = $this->normalizer->primaryAmount($normalized);
+                if ($amount !== null) {
+                    $entities['amount'] = $amount;
+                }
+            }
+            $stillMissing = array_values(array_filter([
+                empty($entities['category_name']) ? 'category_name' : null,
+                empty($entities['amount']) ? 'amount' : null,
+            ]));
+
+            return ['entities' => $entities, 'missing_fields' => $stillMissing];
+        }
+
+        if (in_array('amount', $missing, true)) {
+            $amount = $this->normalizer->primaryAmount($normalized);
+            if ($amount !== null) {
+                $entities['amount'] = $amount;
+            }
+        }
+
+        $stillMissing = array_values(array_filter($missing, function ($field) use ($entities) {
+            return empty($entities[$field]) && empty($entities[str_replace('_name', '', $field)]);
+        }));
+
+        return ['entities' => $entities, 'missing_fields' => $stillMissing];
+    }
+
+    /**
+     * @param  array<string, mixed>  $channelContext
+     * @param  array<string, mixed>  $intent
+     * @return array<string, mixed>
+     */
+    private function handleCollectingDraft(
+        int $userId,
+        string $channel,
+        array $channelContext,
+        AiConversation $conversation,
+        string $message,
+        array $intent,
+        string $periodKey,
+        ?string $clarification,
+    ): array {
+        $actionType = $intent['action_type'] ?? '';
+        $entities = $intent['entities'] ?? [];
+        $missing = $intent['missing_fields'] ?? [];
+
+        $existing = $this->findCollectingDraft($userId, $channel, $channelContext);
+        if ($existing) {
+            $existing->update(['status' => AiActionDraft::STATUS_CANCELLED]);
+        }
+
+        $payload = [
+            'partial_entities' => $entities,
+            'missing_fields' => $missing,
+            'expected_next_field' => $missing[0] ?? null,
+        ];
+
+        if ($actionType === 'create_wallet') {
+            $normalized = $this->clarificationService->normalizeWalletEntities($entities);
+            $payload['name'] = $normalized['wallet_name'] ?? null;
+            $payload['type'] = $normalized['wallet_type'] ?? null;
+            $payload['initial_balance'] = $normalized['initial_balance'] ?? 0;
+        }
+
+        $draft = AiActionDraft::create([
+            'user_id' => $userId,
+            'ai_conversation_id' => $conversation->id,
+            'channel' => $channel,
+            'telegram_chat_id' => $channelContext['telegram_chat_id'] ?? null,
+            'action_type' => $actionType,
+            'payload' => $payload,
+            'preview_text' => null,
+            'status' => AiActionDraft::STATUS_COLLECTING,
+            'expires_at' => now()->addMinutes((int) config('ai.draft_expiry_minutes', 30)),
+        ]);
+
+        $this->logTraining($userId, $channel, $message, $periodKey, $intent, null, null, null);
+
+        return [
+            'ok' => true,
+            'type' => 'clarification',
+            'message' => $clarification ?? 'Mohon lengkapi informasi yang diminta.',
+            'structured' => $intent,
+            'draft_id' => $draft->id,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $channelContext
+     */
+    private function findCollectingDraft(int $userId, string $channel, array $channelContext): ?AiActionDraft
+    {
+        $query = AiActionDraft::query()
+            ->where('user_id', $userId)
+            ->where('channel', $channel)
+            ->where('status', AiActionDraft::STATUS_COLLECTING)
+            ->where('expires_at', '>', now());
+
+        if ($channel === 'telegram' && ! empty($channelContext['telegram_chat_id'])) {
+            $query->where('telegram_chat_id', $channelContext['telegram_chat_id']);
+        }
+
+        return $query->latest()->first();
+    }
+
+    /**
+     * @param  array<string, mixed>  $commandParse
+     */
+    private function rulesParseHasUsefulEntities(array $commandParse): bool
+    {
+        $entities = $commandParse['entities'] ?? [];
+        foreach ($entities as $value) {
+            if ($value !== null && $value !== '' && $value !== 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

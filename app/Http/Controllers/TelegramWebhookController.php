@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ProcessTelegramMessageJob;
+use App\Services\Telegram\TelegramBotMessages;
 use App\Services\Telegram\TelegramBotService;
 use App\Services\Telegram\TelegramLinkService;
 use Illuminate\Http\Request;
@@ -47,19 +48,8 @@ class TelegramWebhookController extends Controller
             return response('ok', 200);
         }
 
-        if (str_starts_with($text, '/start')) {
-            $this->telegramBot->sendMessage(
-                $chatId,
-                "Hi! Saya Flowlet Assistant.\n\n"
-                ."Hubungkan akun dulu dari dashboard web, lalu kirim:\n/link KODE\n\n"
-                ."Ketik /help untuk bantuan."
-            );
-
-            return response('ok', 200);
-        }
-
-        if (str_starts_with($text, '/help')) {
-            $this->telegramBot->sendMessage($chatId, $this->helpText());
+        if ($reply = $this->syncSlashCommandReply($text)) {
+            $this->telegramBot->sendMessage($chatId, $reply);
 
             return response('ok', 200);
         }
@@ -104,16 +94,32 @@ class TelegramWebhookController extends Controller
         return response('ok', 200);
     }
 
-    private function helpText(): string
+    /**
+     * Commands answered immediately in webhook (no queue): start, help, tutorials, bare /link.
+     */
+    private function syncSlashCommandReply(string $text): ?string
     {
-        return "/summary - ringkasan bulan ini\n"
-            ."/forecast - proyeksi bulan ini\n"
-            ."/wallets - saldo wallet\n"
-            ."/cancel - batalkan aksi pending\n"
-            ."/link KODE - hubungkan akun\n\n"
-            ."Contoh natural language:\n"
-            ."• saldo gue berapa?\n"
-            ."• catat pengeluaran 25000 dari GOPAY buat kopi\n"
-            ."• transfer 50000 dari GOPAY ke SHOPEEPAY";
+        $commandKey = TelegramBotMessages::parseSlashCommand($text);
+        if ($commandKey === null) {
+            return null;
+        }
+
+        if ($commandKey === 'start') {
+            return TelegramBotMessages::welcome();
+        }
+
+        if ($commandKey === 'help') {
+            return TelegramBotMessages::help();
+        }
+
+        if ($commandKey === 'link' && ! TelegramBotMessages::hasLinkCode($text)) {
+            return TelegramBotMessages::linkTutorial();
+        }
+
+        if (TelegramBotMessages::isTutorialCommand($commandKey)) {
+            return TelegramBotMessages::tutorial($commandKey);
+        }
+
+        return null;
     }
 }

@@ -72,6 +72,30 @@ Rules:
 PROMPT;
     }
 
+    public static function repairParse(): string
+    {
+        return <<<'PROMPT'
+You are NOT answering the user. Extract structured intent JSON only from the user message.
+Use the partial rule parse when provided — fill missing fields from the original message if possible.
+Do not invent fields that are not supported by the message.
+Return JSON only — no markdown, no explanation.
+
+wallet_type must be one of: cash, bank, ewallet (lowercase enum values).
+initial_balance must be integer IDR (348.455 => 348455, 50 ribu => 50000).
+
+Schema:
+{
+  "intent": "parse_wallet|parse_transfer|parse_transaction|parse_budget|parse_recurring|unknown",
+  "confidence": 0.0,
+  "requires_action": true,
+  "action_type": "create_wallet|create_transfer|create_transaction|create_budget|create_recurring|null",
+  "entities": {},
+  "missing_fields": [],
+  "clarifying_question": null
+}
+PROMPT;
+    }
+
     public static function responseGeneration(string $contextJson): string
     {
         return self::assistant()."\n\nFinance context JSON:\n".$contextJson;

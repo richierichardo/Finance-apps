@@ -44,6 +44,22 @@ class UserFactory extends Factory
         ]);
     }
 
+    public function owner(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::Owner,
+            'ai_enabled' => true,
+            'telegram_enabled' => true,
+        ]);
+    }
+
+    public function withAi(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'ai_enabled' => true,
+        ]);
+    }
+
     /**
      * Indicate that the model's email address should be unverified.
      */

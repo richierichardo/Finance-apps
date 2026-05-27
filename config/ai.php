@@ -32,4 +32,16 @@ return [
 
     'link_token_expiry_minutes' => (int) env('TELEGRAM_LINK_TOKEN_EXPIRY_MINUTES', 10),
 
+    'access' => [
+        'feature_enabled' => filter_var(env('AI_FEATURE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'public_access' => filter_var(env('AI_PUBLIC_ACCESS', false), FILTER_VALIDATE_BOOLEAN),
+        'allowed_user_ids' => array_values(array_filter(array_map(
+            'intval',
+            array_map('trim', explode(',', (string) env('AI_ALLOWED_USER_IDS', '')))
+        ))),
+        'daily_request_limit' => (int) env('AI_DAILY_REQUEST_LIMIT', 20),
+        'telegram_actions_per_minute' => (int) env('AI_TELEGRAM_ACTIONS_PER_MINUTE', 5),
+        'denial_message' => 'Fitur AI Flowlet masih dalam beta terbatas. Kamu tetap bisa memakai fitur pencatatan wallet, transaksi, budget, dan recurring secara manual.',
+    ],
+
 ];

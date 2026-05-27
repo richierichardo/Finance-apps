@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\TransactionSource;
 use App\Enums\TransactionType;
 use App\Models\Transaction;
 use App\Models\Wallet;
@@ -25,8 +26,10 @@ class TransferService
         Wallet $toWallet,
         float $amount,
         ?string $description,
-        string $occurredAt
+        string $occurredAt,
+        TransactionSource|string $source = TransactionSource::WebManual,
     ): array {
+        $sourceValue = $source instanceof TransactionSource ? $source->value : $source;
         if ($amount <= 0) {
             throw new InvalidArgumentException('Amount must be greater than 0.');
         }
@@ -43,14 +46,14 @@ class TransferService
             throw new InvalidArgumentException('Insufficient balance in source wallet.');
         }
 
-        return DB::transaction(function () use ($fromWallet, $toWallet, $amount, $description, $occurredAt) {
+        return DB::transaction(function () use ($fromWallet, $toWallet, $amount, $description, $occurredAt, $sourceValue) {
             $transferOut = $this->transactionService->create([
                 'user_id' => $fromWallet->user_id,
                 'wallet_id' => $fromWallet->id,
                 'type' => TransactionType::TransferOut,
                 'amount' => $amount,
                 'description' => $description ?? 'Transfer',
-                'source' => 'web',
+                'source' => $sourceValue,
                 'occurred_at' => $occurredAt,
             ]);
 
@@ -60,7 +63,7 @@ class TransferService
                 'type' => TransactionType::TransferIn,
                 'amount' => $amount,
                 'description' => $description ?? 'Transfer',
-                'source' => 'web',
+                'source' => $sourceValue,
                 'reference_id' => $transferOut->id,
                 'occurred_at' => $occurredAt,
             ]);

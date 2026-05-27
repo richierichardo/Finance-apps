@@ -77,11 +77,12 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        $user->forceFill(['last_login_at' => now()])->save();
+
         // Redirect based on role
-        $redirectTo = match ($user->role) {
-            UserRole::Admin => route('admin.dashboard', absolute: false),
-            default => route('dashboard', absolute: false),
-        };
+        $redirectTo = $user->role === UserRole::Admin
+            ? route('admin.dashboard', absolute: false)
+            : route('dashboard', absolute: false);
 
         return redirect()->intended($redirectTo);
     }

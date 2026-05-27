@@ -3,14 +3,24 @@
 namespace App\Http\Controllers;
 
 use App\Models\TelegramLinkToken;
+use App\Services\AI\AiAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Str;
 
 class TelegramLinkController extends Controller
 {
+    public function __construct(
+        protected AiAccessService $aiAccessService,
+    ) {}
+
     public function store(): JsonResponse
     {
-        $userId = (int) auth()->id();
+        $user = auth()->user();
+        if (! $user || ! $this->aiAccessService->canUseTelegram($user)) {
+            return response()->json($this->aiAccessService->denialResponse(), 403);
+        }
+
+        $userId = (int) $user->id;
         $expiryMinutes = (int) config('ai.link_token_expiry_minutes', 10);
 
         TelegramLinkToken::query()

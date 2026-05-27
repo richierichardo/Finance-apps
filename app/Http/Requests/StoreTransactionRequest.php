@@ -4,7 +4,6 @@ namespace App\Http\Requests;
 
 use App\Enums\TransactionCategoryExpenses;
 use App\Enums\TransactionCategoryIncome;
-use App\Enums\TransactionSource;
 use App\Enums\TransactionType;
 use App\Models\Wallet;
 use Illuminate\Foundation\Http\FormRequest;
@@ -35,15 +34,7 @@ class StoreTransactionRequest extends FormRequest
             ],
             'description' => ['nullable', 'string', 'max:65535'],
             'occurred_at' => ['required', 'date'],
-            'source' => ['nullable', Rule::enum(TransactionSource::class)],
         ];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        if (!$this->has('source')) {
-            $this->merge(['source' => 'web']);
-        }
     }
 
     public function withValidator($validator): void

@@ -22,7 +22,7 @@ class WalletObserver
                 'type' => TransactionType::Income,
                 'amount' => $wallet->initial_balance,
                 'description' => 'Initial balance',
-                'source' => TransactionSource::Web,
+                'source' => TransactionSource::SystemInitialBalance,
                 'occurred_at' => now(),
             ]);
         }

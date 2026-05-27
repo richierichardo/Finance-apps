@@ -57,13 +57,13 @@ export default function Welcome({ auth }) {
                             <section>
                                 <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-emerald-200 backdrop-blur">
                                     <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                                    AI-assisted personal finance tracker
+                                    Personal finance tracker
                                 </div>
                                 <h1 className="mt-6 max-w-3xl text-5xl font-semibold tracking-tight text-white sm:text-6xl lg:text-7xl">
                                     Manage your money with better flow.
                                 </h1>
                                 <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300 sm:text-xl">
-                                    Flowlet helps you manage wallets, transactions, budgets, recurring payments, cashflow, and forecasting in one calm, intelligent dashboard.
+                                    Flowlet helps you manage wallets, transactions, budgets, recurring payments, cashflow, and forecasting in one calm dashboard.
                                 </p>
 
                                 {!auth?.user && (
@@ -94,10 +94,10 @@ export default function Welcome({ auth }) {
                                     </div>
                                     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur">
                                         <div className="text-sm text-slate-400">
-                                            AI assistant
+                                            Budgets
                                         </div>
                                         <div className="mt-2 text-lg font-semibold text-white">
-                                            Smart guidance
+                                            Stay on track
                                         </div>
                                     </div>
                                     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur">

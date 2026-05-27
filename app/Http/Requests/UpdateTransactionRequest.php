@@ -4,7 +4,6 @@ namespace App\Http\Requests;
 
 use App\Enums\TransactionCategoryExpenses;
 use App\Enums\TransactionCategoryIncome;
-use App\Enums\TransactionSource;
 use App\Enums\TransactionType;
 use App\Models\Wallet;
 use Illuminate\Foundation\Http\FormRequest;
@@ -36,7 +35,6 @@ class UpdateTransactionRequest extends FormRequest
             ],
             'description' => ['nullable', 'string', 'max:65535'],
             'occurred_at' => ['sometimes', 'required', 'date'],
-            'source' => ['nullable', Rule::enum(TransactionSource::class)],
         ];
     }
 

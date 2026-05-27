@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\UserRole;
+use App\Services\AI\AiAccessService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -33,6 +35,11 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user(),
+                'is_admin' => fn () => ($user = $request->user()) && $user->role === UserRole::Admin,
+            ],
+            'features' => fn () => [
+                'can_use_ai' => ($user = $request->user()) && app(AiAccessService::class)->canUseAi($user),
+                'can_use_telegram' => ($user = $request->user()) && app(AiAccessService::class)->canUseTelegram($user),
             ],
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),

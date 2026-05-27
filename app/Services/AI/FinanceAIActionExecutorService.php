@@ -86,12 +86,17 @@ class FinanceAIActionExecutorService
         $from = Wallet::belongsToUser($userId)->findOrFail($payload['from_wallet_id']);
         $to = Wallet::belongsToUser($userId)->findOrFail($payload['to_wallet_id']);
 
+        $source = isset($payload['source'])
+            ? TransactionSource::from($payload['source'])
+            : TransactionSource::TelegramAi;
+
         $this->transferService->transfer(
             $from,
             $to,
             (float) $payload['amount'],
             $payload['description'] ?? null,
             $payload['transaction_date'] ?? now()->toDateTimeString(),
+            $source,
         );
 
         return [

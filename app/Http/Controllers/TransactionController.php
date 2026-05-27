@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\TransactionCategoryExpenses;
 use App\Enums\TransactionCategoryIncome;
+use App\Enums\TransactionSource;
 use App\Http\Requests\StoreTransactionRequest;
 use App\Http\Requests\TransferTransactionRequest;
 use App\Http\Requests\UpdateTransactionRequest;
@@ -100,7 +101,7 @@ class TransactionController extends Controller
             'amount' => $request->amount,
             'category_transaction' => $request->category_transaction,
             'description' => $request->description,
-            'source' => $request->source ?? 'web',
+            'source' => TransactionSource::WebManual->value,
             'occurred_at' => $request->occurred_at,
         ]);
 

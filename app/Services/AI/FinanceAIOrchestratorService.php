@@ -6,6 +6,7 @@ use App\Models\AiActionDraft;
 use App\Models\AiConversation;
 use App\Models\AiMessage;
 use App\Models\AiTrainingExample;
+use App\Models\User;
 use App\Models\Wallet;
 use App\Services\AI\Prompts\FinanceAISystemPrompt;
 use Carbon\Carbon;
@@ -42,6 +43,8 @@ class FinanceAIOrchestratorService
         protected FinanceAICommandParserService $commandParser,
         protected FinanceAIClarificationService $clarificationService,
         protected FinanceEntityResolverService $entityResolver,
+        protected AiAccessService $aiAccessService,
+        protected AiRateLimitService $rateLimitService,
     ) {}
 
     /**
@@ -53,6 +56,27 @@ class FinanceAIOrchestratorService
         $message = trim($message);
         if ($message === '') {
             return $this->error('Pesan tidak boleh kosong.');
+        }
+
+        $user = User::query()->find($userId);
+        if (! $user || ! $this->aiAccessService->canUseAi($user)) {
+            if ($user) {
+                $this->aiAccessService->logDenied($user, 'orchestrator', $channel);
+            }
+
+            return $this->accessDeniedResult();
+        }
+
+        if ($channel === 'telegram') {
+            if (! $this->rateLimitService->checkTelegramMinuteLimit($userId)) {
+                return $this->rateLimitedResult($this->rateLimitService->telegramLimitMessage());
+            }
+            $this->rateLimitService->hitTelegramMinuteLimit($userId);
+        } else {
+            if (! $this->rateLimitService->checkDailyLimit($userId)) {
+                return $this->rateLimitedResult($this->rateLimitService->dailyLimitMessage());
+            }
+            $this->rateLimitService->hitDailyLimit($userId);
         }
 
         $conversation = $this->findOrCreateConversation($userId, $channel, $channelContext);
@@ -1457,6 +1481,36 @@ class FinanceAIOrchestratorService
     /**
      * @return array<string, mixed>
      */
+    private function accessDeniedResult(): array
+    {
+        return [
+            ...$this->aiAccessService->denialResponse(),
+            'type' => 'blocked',
+            'structured' => [
+                'intent' => 'access_denied',
+                'guardrail_blocked' => true,
+                'model_called' => false,
+                'token_usage' => $this->tokenUsageService->zeroUsage(),
+            ],
+            'draft_id' => null,
+        ];
+    }
+
+    private function rateLimitedResult(string $message): array
+    {
+        return [
+            ...$this->rateLimitService->rateLimitResponse($message),
+            'type' => 'blocked',
+            'structured' => [
+                'intent' => 'rate_limited',
+                'guardrail_blocked' => false,
+                'model_called' => false,
+                'token_usage' => $this->tokenUsageService->zeroUsage(),
+            ],
+            'draft_id' => null,
+        ];
+    }
+
     private function error(string $message): array
     {
         return [

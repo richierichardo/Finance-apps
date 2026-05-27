@@ -79,6 +79,9 @@ export default function AIAssistantCard() {
                     <p className="mt-1 text-sm text-slate-600">
                         Ask about cashflow, budget, wallet balance, or forecast.
                     </p>
+                    <p className="mt-2 text-xs text-slate-500">
+                        Bantuan pencatatan dan analisis sederhana — bukan nasihat finansial profesional.
+                    </p>
                 </div>
                 <span className="rounded-lg bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
                     Qwen · Beta

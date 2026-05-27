@@ -2,7 +2,7 @@ import AIAssistantCard from '@/Components/AIAssistantCard';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import BudgetProgress from '@/Components/BudgetProgress';
 import UpcomingRecurring from '@/Components/UpcomingRecurring';
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import {
     Chart as ChartJS,
@@ -42,6 +42,7 @@ const chartOptions = {
 };
 
 export default function Dashboard() {
+    const { features } = usePage().props;
     const [summary, setSummary] = useState(null);
     const [cashflow, setCashflow] = useState([]);
     const [categoryBreakdown, setCategoryBreakdown] = useState([]);
@@ -304,9 +305,11 @@ export default function Dashboard() {
                         )}
                     </div>
 
-                    <div className="mt-8">
-                        <AIAssistantCard />
-                    </div>
+                    {features?.can_use_ai && (
+                        <div className="mt-8">
+                            <AIAssistantCard />
+                        </div>
+                    )}
                 </div>
             </div>
         </AuthenticatedLayout>

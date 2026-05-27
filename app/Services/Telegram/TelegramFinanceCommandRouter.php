@@ -3,6 +3,8 @@
 namespace App\Services\Telegram;
 
 use App\Models\AiActionDraft;
+use App\Models\User;
+use App\Services\AI\AiAccessService;
 use App\Services\AI\FinanceAICommandParserService;
 use App\Services\AI\FinanceAIContextService;
 use App\Services\AI\FinanceAIOrchestratorService;
@@ -18,6 +20,7 @@ class TelegramFinanceCommandRouter
         protected FinanceAIContextService $contextService,
         protected FinanceEntityResolverService $entityResolver,
         protected ForecastInsightService $forecastInsightService,
+        protected AiAccessService $aiAccessService,
     ) {}
 
     /**
@@ -29,6 +32,11 @@ class TelegramFinanceCommandRouter
         $text = trim($text);
         if ($text === '') {
             return $this->response('error', 'Pesan tidak boleh kosong.');
+        }
+
+        $user = User::query()->find($userId);
+        if (! $user || ! $this->aiAccessService->canUseTelegram($user)) {
+            return $this->response('blocked', $this->aiAccessService->denialMessage());
         }
 
         $normalized = $this->normalizer->normalize($text);
@@ -50,6 +58,10 @@ class TelegramFinanceCommandRouter
 
         $collecting = $this->findCollectingDraft($userId, $telegramContext);
 
+        if ($collecting && ! $this->aiAccessService->canUseTelegramAi($user)) {
+            return $this->response('blocked', $this->aiAccessService->denialMessage());
+        }
+
         if ($collecting && $this->looksLikeNewIntent($text, $normalized)) {
             $this->cancelDraft($collecting);
             $cancelledNote = 'Aksi sebelumnya saya batalkan karena kamu mengirim perintah baru.';
@@ -67,6 +79,10 @@ class TelegramFinanceCommandRouter
                 'action_type' => $collecting->action_type,
                 'draft_id' => $collecting->id,
             ]);
+        }
+
+        if (! $this->aiAccessService->canUseTelegramAi($user)) {
+            return $this->response('blocked', $this->aiAccessService->denialMessage());
         }
 
         $result = $this->handleNaturalLanguage($userId, $text, $telegramContext);

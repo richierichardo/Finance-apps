@@ -96,7 +96,7 @@ export default function Edit({ wallet }) {
                                     </svg>
                                     <p>
                                         Changing the initial balance may affect the calculated wallet balance.
-                                        Run Sync after saving to make sure the balance is accurate.
+                                        Balance updates automatically. Use Repair sync on Wallets only if totals look wrong.
                                     </p>
                                 </div>
                                 {errors.initial_balance && (

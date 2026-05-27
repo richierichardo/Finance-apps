@@ -93,7 +93,7 @@ class RecurringTransactionService
             'amount' => $recurring->amount,
             'description' => $recurring->description ?? 'Recurring',
             'occurred_at' => now(),
-            'source' => TransactionSource::System,
+            'source' => TransactionSource::SystemRecurring,
             'recurring_transaction_id' => $recurring->id,
         ]);
 

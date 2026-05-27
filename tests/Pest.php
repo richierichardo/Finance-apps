@@ -15,6 +15,15 @@ pest()->extend(Tests\TestCase::class)
     ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Feature');
 
+pest()->beforeEach(function () {
+    config([
+        'ai.access.feature_enabled' => true,
+        'ai.access.public_access' => true,
+        'telegram.feature_enabled' => true,
+        'telegram.public_access' => true,
+    ]);
+})->in('Feature');
+
 pest()->extend(Tests\TestCase::class)
     ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Unit/Services');

@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Controllers\Admin\AiUsageController as AdminAiUsageController;
+use App\Http\Controllers\Admin\AuditController as AdminAuditController;
+use App\Http\Controllers\Admin\TelegramAccountController as AdminTelegramAccountController;
+use App\Http\Controllers\Admin\UserController as AdminUserController;
 use App\Http\Controllers\AIChatController;
 use App\Http\Controllers\AIUsageController;
 use App\Http\Controllers\AIInsightController;
@@ -30,32 +34,34 @@ Route::get('/', function () {
 
 Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+})->middleware(['auth', 'verified', 'member.app'])->name('dashboard');
 
 // Admin Routes
-Route::middleware(['auth', 'admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/dashboard', function () {
         return Inertia::render('Admin/Dashboard');
-    })->name('admin.dashboard');
+    })->name('dashboard');
 
-    Route::get('/users', function () {
-        return Inertia::render('Admin/Users/Index');
-    })->name('admin.users.index');
+    Route::get('/users', [AdminUserController::class, 'index'])->name('users.index');
+    Route::get('/users/{user}', [AdminUserController::class, 'show'])->name('users.show');
+    Route::patch('/users/{user}', [AdminUserController::class, 'update'])->name('users.update');
+    Route::post('/users/{user}/hard-reset-password', [AdminUserController::class, 'hardResetPassword'])
+        ->name('users.hard-reset-password');
 
-    Route::get('/users/{id}', function ($id) {
-        return Inertia::render('Admin/Users/Show', ['userId' => $id]);
-    })->name('admin.users.show');
-
-    Route::get('/reset-password', function () {
-        return Inertia::render('Admin/ResetPassword');
-    })->name('admin.reset-password');
+    Route::get('/ai-usage', [AdminAiUsageController::class, 'index'])->name('ai-usage.index');
+    Route::get('/telegram', [AdminTelegramAccountController::class, 'index'])->name('telegram.index');
+    Route::post('/telegram/{telegramAccount}/unlink', [AdminTelegramAccountController::class, 'unlink'])
+        ->name('telegram.unlink');
+    Route::get('/audit', [AdminAuditController::class, 'index'])->name('audit.index');
 });
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
 
+Route::middleware(['auth', 'member.app'])->group(function () {
     Route::post('/wallet-sync', [WalletController::class, 'syncBalance'])->name('wallets.sync');
 
     Route::resource('wallets', WalletController::class);
@@ -83,12 +89,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/insights', [AIInsightController::class, 'index'])->name('insights.index');
     Route::get('/insights/forecast', [AIInsightController::class, 'forecast'])->name('insights.forecast');
     Route::get('/insights/{periodKey}', [AIInsightController::class, 'show'])->name('insights.show');
-    Route::post('/insights/generate', [AIInsightController::class, 'generate'])->name('insights.generate');
+    Route::post('/insights/generate', [AIInsightController::class, 'generate'])
+        ->middleware('ai.access')
+        ->name('insights.generate');
 
-    Route::get('/ai/usage-summary', [AIUsageController::class, 'summary'])->name('ai.usage-summary');
-    Route::post('/ai/chat', [AIChatController::class, 'chat'])->name('ai.chat');
-    Route::post('/ai/action-drafts/{draft}/confirm', [AIChatController::class, 'confirm'])->name('ai.action.confirm');
-    Route::post('/ai/action-drafts/{draft}/cancel', [AIChatController::class, 'cancel'])->name('ai.action.cancel');
+    Route::middleware('ai.access')->group(function () {
+        Route::get('/ai/usage-summary', [AIUsageController::class, 'summary'])->name('ai.usage-summary');
+        Route::post('/ai/chat', [AIChatController::class, 'chat'])->name('ai.chat');
+        Route::post('/ai/action-drafts/{draft}/confirm', [AIChatController::class, 'confirm'])->name('ai.action.confirm');
+        Route::post('/ai/action-drafts/{draft}/cancel', [AIChatController::class, 'cancel'])->name('ai.action.cancel');
+    });
 
     Route::post('/telegram/link-token', [TelegramLinkController::class, 'store'])->name('telegram.link-token');
 });

@@ -6,6 +6,7 @@ namespace App\Models;
 use App\Enums\UserGender;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Services\AI\AiAccessService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -28,6 +29,9 @@ class User extends Authenticatable
         'gender',
         'permissions',
         'is_superadmin',
+        'ai_enabled',
+        'telegram_enabled',
+        'last_login_at',
         'banned_until',
         'name',
         'email',
@@ -58,6 +62,9 @@ class User extends Authenticatable
             'gender' => UserGender::class,
             'permissions' => 'array',
             'is_superadmin' => 'boolean',
+            'ai_enabled' => 'boolean',
+            'telegram_enabled' => 'boolean',
+            'last_login_at' => 'datetime',
             'banned_until' => 'datetime',
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
@@ -67,6 +74,16 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return (bool) $this->is_superadmin;
+    }
+
+    public function canUseAi(): bool
+    {
+        return app(AiAccessService::class)->canUseAi($this);
+    }
+
+    public function canUseTelegram(): bool
+    {
+        return app(AiAccessService::class)->canUseTelegram($this);
     }
 
     public function isBanned(): bool

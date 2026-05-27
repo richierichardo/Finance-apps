@@ -55,7 +55,7 @@ test('recurring process creates transaction with source system', function () {
         ->first();
 
     expect($transaction)->not->toBeNull()
-        ->and($transaction->source)->toBe(TransactionSource::System)
+        ->and($transaction->source)->toBe(TransactionSource::SystemRecurring)
         ->and((float) $transaction->amount)->toBe(150000.0);
 });
 

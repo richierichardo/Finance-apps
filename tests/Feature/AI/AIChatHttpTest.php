@@ -7,7 +7,11 @@ use App\Services\AI\FinanceAIOrchestratorService;
 use Illuminate\Support\Str;
 
 beforeEach(function () {
-    $this->user = User::factory()->create(['username' => 'ai_'.Str::random(8)]);
+    config([
+        'ai.access.feature_enabled' => true,
+        'ai.access.public_access' => false,
+    ]);
+    $this->user = User::factory()->withAi()->create(['username' => 'ai_'.Str::random(8)]);
     Wallet::create([
         'user_id' => $this->user->id,
         'name' => 'GOPAY',

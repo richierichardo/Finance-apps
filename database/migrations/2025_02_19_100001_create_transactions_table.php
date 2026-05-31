@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('type', 20); // income, expense, transfer_out, transfer_in
             $table->decimal('amount', 15, 2)->unsigned();
             $table->text('description')->nullable();
-            $table->string('source', 20)->default('web'); // web, telegram, whatsapp
+            $table->string('source', 32)->default('web_manual');
             $table->unsignedBigInteger('reference_id')->nullable(); // untuk transfer pair
             $table->timestamp('occurred_at');
             $table->timestamps();

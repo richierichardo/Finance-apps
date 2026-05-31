@@ -4,6 +4,9 @@ namespace App\Enums;
 
 enum TransactionSource: string
 {
+    /** Recommended VARCHAR length for `transactions.source` (longest case value). */
+    public const DB_COLUMN_LENGTH = 32;
+
     case WebManual = 'web_manual';
     case WebAi = 'web_ai';
     case TelegramManual = 'telegram_manual';

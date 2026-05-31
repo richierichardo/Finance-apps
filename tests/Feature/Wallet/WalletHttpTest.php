@@ -32,6 +32,25 @@ test('authenticated user can create wallet and is redirected to show', function 
     $response->assertRedirect(route('wallets.show', $wallet));
 });
 
+test('creating wallet with initial balance stores system_initial_balance source', function () {
+    $this->actingAs($this->user)->post(route('wallets.store'), [
+        'name' => 'BCA 7106',
+        'type' => WalletType::Bank->value,
+        'initial_balance' => 4_809_142,
+    ])->assertRedirect();
+
+    $wallet = Wallet::where('user_id', $this->user->id)->where('name', 'BCA 7106')->first();
+
+    expect($wallet)->not->toBeNull()
+        ->and((float) $wallet->initial_balance)->toBe(4809142.0);
+
+    $adjustment = $wallet->transactions()->where('description', 'Initial balance')->first();
+
+    expect($adjustment)->not->toBeNull()
+        ->and((float) $adjustment->amount)->toBe(4809142.0)
+        ->and($adjustment->source->value)->toBe('system_initial_balance');
+});
+
 test('wallet store validation rejects missing name', function () {
     $response = $this->actingAs($this->user)->from(route('wallets.create'))
         ->post(route('wallets.store'), [

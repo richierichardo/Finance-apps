@@ -17,7 +17,15 @@ export default function Edit({ wallet }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        put(route('wallets.update', wallet.id));
+        put(route('wallets.update', wallet.id), {
+            transform: (formData) => ({
+                ...formData,
+                initial_balance:
+                    formData.initial_balance === ''
+                        ? 0
+                        : Number(formData.initial_balance),
+            }),
+        });
     };
 
     return (

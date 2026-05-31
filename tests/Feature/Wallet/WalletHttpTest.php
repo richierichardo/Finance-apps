@@ -90,6 +90,37 @@ test('user can update own wallet', function () {
     expect($wallet->fresh()->name)->toBe('Renamed');
 });
 
+test('updating initial balance syncs adjustment transaction and wallet balance', function () {
+    $wallet = Wallet::create([
+        'user_id' => $this->user->id,
+        'name' => 'GOPAY',
+        'type' => WalletType::Ewallet,
+        'initial_balance' => 348455,
+        'balance' => 348455,
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($this->user)->from(route('wallets.edit', $wallet))
+        ->put(route('wallets.update', $wallet), [
+            'name' => 'GOPAY',
+            'type' => WalletType::Ewallet->value,
+            'initial_balance' => 79909,
+        ])
+        ->assertRedirect(route('wallets.show', $wallet));
+
+    $wallet->refresh();
+
+    expect((float) $wallet->initial_balance)->toBe(79909.0)
+        ->and((float) $wallet->balance)->toBe(79909.0);
+
+    $adjustment = $wallet->transactions()
+        ->where('description', 'Initial balance')
+        ->first();
+
+    expect($adjustment)->not->toBeNull()
+        ->and((float) $adjustment->amount)->toBe(79909.0);
+});
+
 test('user can sync balances for own wallets', function () {
     $wallet = Wallet::create([
         'user_id' => $this->user->id,
